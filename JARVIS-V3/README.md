@@ -724,6 +724,15 @@ Open the ESP32's IP address in a browser:
 
 ``` text
 http://ESP32_IP/
+Dashboard Authentication
+├── Username: admin
+├── Password: 1234567
+├── Login session/cookie
+├── /              → login required
+├── /api/status    → login required
+├── /api/fan      → login required
+├── /save          → login required
+└── /logout        → logout
 ```
 
 The built-in dashboard opens.
