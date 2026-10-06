@@ -27,6 +27,8 @@
  * - blocking WiFiManager/MQTT reconnect -> non-blocking operation
  * - hard-coded MQTT settings -> Preferences + dashboard configuration
  * - modernized HA discovery payloads
+ * - status LED: BLINKING until WiFi + MQTT are both connected, SOLID when
+ *   both connections are established; on every reset/boot it starts blinking.
  */
 
 #include <WiFi.h>
@@ -70,6 +72,17 @@
 
 #define I2C_SDA_PIN 21
 #define I2C_SCL_PIN 22
+
+// Built-in / board status LED.
+// Default ESP32 Dev Module LED is commonly GPIO2.
+// If your board uses another LED pin, change only this definition.
+#define STATUS_LED_PIN 2
+#define STATUS_LED_ACTIVE_HIGH true
+
+// LED behavior:
+//   - BLINKING: boot/reset, WiFi disconnected, or MQTT disconnected
+//   - SOLID:    WiFi connected AND MQTT connected
+#define STATUS_LED_BLINK_MS 500UL
 
 #define WDT_TIMEOUT 5
 
@@ -250,7 +263,6 @@ volatile uint32_t previousZcUs[4] = {0, 0, 0, 0};
 volatile bool zcHavePeriod[4] = {false, false, false, false};
 volatile uint32_t measuredHalfCycleUs = HALF_CYCLE_US;
 
-
 hw_timer_t *triacTimer = nullptr;
 
 float lastTemp = -1000;
@@ -269,7 +281,39 @@ unsigned long lastMqttAttempt = 0;
 unsigned long lastWiFiCheck = 0;
 unsigned long lastDiscovery = 0;
 
+// Status LED state
+bool statusLedState = false;
+unsigned long lastStatusLedToggle = 0;
+
 const char *availability_topic = "jarvis/status/availability";
+
+// ========================= STATUS LED =================================
+
+void writeStatusLed(bool on) {
+  bool level = STATUS_LED_ACTIVE_HIGH ? on : !on;
+  digitalWrite(STATUS_LED_PIN, level ? HIGH : LOW);
+  statusLedState = on;
+}
+
+void statusLedTask() {
+  // Solid ON only when BOTH WiFi and MQTT are connected.
+  const bool systemConnected =
+    (WiFi.status() == WL_CONNECTED) && client.connected();
+
+  if (systemConnected) {
+    if (!statusLedState) {
+      writeStatusLed(true);
+    }
+    lastStatusLedToggle = millis();
+    return;
+  }
+
+  // Any missing connection -> blink.
+  if (millis() - lastStatusLedToggle >= STATUS_LED_BLINK_MS) {
+    lastStatusLedToggle = millis();
+    writeStatusLed(!statusLedState);
+  }
+}
 
 // ========================= ISR ======================================
 
@@ -331,9 +375,6 @@ void applyZcInterrupts() {
 void configureZcInput(uint8_t idx) {
   if (idx > 3) return;
   const int pins[4] = {FAN1_ZC_PIN, FAN2_ZC_PIN, FAN3_ZC_PIN, FAN4_ZC_PIN};
-  // The detector output must provide its own safe pull-up when using
-  // ESP32 input-only GPIO34-36. For normal GPIOs an external pull-up is
-  // still recommended for optocoupler collector outputs.
   pinMode(pins[idx], INPUT);
 }
 
@@ -732,9 +773,6 @@ void subscribeTopics() {
 }
 
 void restoreOutputs() {
-  // The last motor state is still retained in NVS, but a water pump must
-  // never be started blindly after reboot. Start OFF and let the normal
-  // water-level logic re-authorize it.
   (void)pref.getBool("m_st", false);
   digitalWrite(MOTOR_PIN, LOW);
   lastMotorState = false;
@@ -781,9 +819,6 @@ bool connectMqttOnce() {
     client.publish(availability_topic, "online", true);
     subscribeTopics();
     sendDiscovery();
-    // Do not restore physical outputs on MQTT reconnect. Output state is
-    // restored once during boot; reconnect must never unexpectedly restart
-    // a fan that was turned OFF locally or from Home Assistant.
     lastDiscovery = millis();
 
     Serial.println("MQTT connected");
@@ -815,7 +850,6 @@ void loadPreferences() {
   mqttUser = pref.getString("mqtt_user", "esp32");
   mqttPass = pref.getString("mqtt_pass", "12345678");
 
-  // Dashboard admin credential is independent of MQTT.
   adminUser = pref.getString("adm_user", "admin");
   adminPass = pref.getString("adm_pass", "admin12345");
   if (adminUser.length() == 0) adminUser = "admin";
@@ -896,16 +930,6 @@ void savePreferences() {
 }
 
 // ========================= DASHBOARD ================================
-//
-// Dashboard security:
-//   Username: admin (stored in NVS)
-//   Initial password: admin12345
-//   Password can be changed from the authenticated dashboard.
-//   MQTT credentials are NOT used for dashboard login.
-//
-// NOTE: WebServer HTTP Basic Authentication is not encrypted by itself.
-// Use it on a trusted LAN/VLAN or behind an appropriate secure gateway.
-// Do not expose the ESP32 dashboard directly to the public Internet.
 
 String htmlEscape(const String &s) {
   String r = s;
@@ -1094,9 +1118,6 @@ String buildDashboard() {
 }
 
 bool authorizeWebRequest() {
-  // Dashboard authentication is intentionally independent from MQTT.
-  // HTTP Basic Authentication is used by WebServer; the browser will
-  // automatically send the credentials for subsequent dashboard/API requests.
   if (adminUser.length() == 0 || adminPass.length() < 8) {
     server.send(503, "text/plain", "Dashboard administrator credentials are not configured");
     return false;
@@ -1223,8 +1244,6 @@ void handleSaveConfig() {
   savePreferences();
   applyZcInterrupts();
 
-  // OTA password is applied during setup before ArduinoOTA.begin(). A new
-  // MQTT password therefore takes effect for OTA after the next reboot.
   client.disconnect();
 
   server.send(200, "text/html",
@@ -1281,7 +1300,6 @@ void handleChangePassword() {
   adminPass = newPassword;
   pref.putString("adm_pass", adminPass);
 
-  // Force the browser to authenticate again with the new credential.
   server.send(401, "text/html",
               "<html><body><h2>Admin password changed</h2>"
               "<p>The new password has been saved. The dashboard will require "
@@ -1302,7 +1320,6 @@ void setupWebServer() {
 // ========================= WIFIMANAGER ===============================
 
 void saveConfigCallback() {
-  // Copy the values while the WiFiManager parameters are still alive.
   mqttHost = p_mqtt_host.getValue();
   mqttPort = (uint16_t)constrain(atoi(p_mqtt_port.getValue()), 1, 65535);
   mqttUser = p_mqtt_user.getValue();
@@ -1321,9 +1338,6 @@ void startWiFiManagerPortal() {
   wm.setSaveConfigCallback(saveConfigCallback);
   wm.setConfigPortalTimeout(180);
 
-  // Keep one persistent set of custom parameters for the entire non-blocking
-  // portal lifetime. This fixes the previous lifecycle bug where the values
-  // could be copied before the user submitted the portal form.
   p_mqtt_host.setValue(mqttHost.c_str(), 64);
   char mqttPortBuf[8];
   snprintf(mqttPortBuf, sizeof(mqttPortBuf), "%u", mqttPort);
@@ -1350,14 +1364,11 @@ void startWiFiManagerPortal() {
   }
 
   if (!wm.autoConnect("Jarvis_AP")) {
-    // Non-blocking portal starts/continues through process().
     configPortalRunning = true;
   } else {
     configPortalRunning = false;
   }
 
-  // If autoConnect completed immediately, the callback has already copied
-  // submitted values. If no save occurred, keep the values loaded from NVS.
   if (shouldSaveConfig) {
     savePreferences();
     shouldSaveConfig = false;
@@ -1372,8 +1383,6 @@ void wifiTask() {
       savePreferences();
       shouldSaveConfig = false;
 
-      // Apply the new MQTT endpoint immediately; the normal MQTT task will
-      // reconnect without blocking the main loop.
       client.disconnect();
       client.setServer(mqttHost.c_str(), mqttPort);
     }
@@ -1383,7 +1392,6 @@ void wifiTask() {
     lastWiFiCheck = millis();
 
     if (WiFi.status() != WL_CONNECTED) {
-      // WiFiManager portal handles configuration. Do not block here.
       return;
     }
 
@@ -1402,7 +1410,6 @@ void setupOTA() {
   }
 
   ArduinoOTA.onStart([]() {
-    // Disable fan gate requests during OTA.
     for (int i = 0; i < 4; i++) {
       applyFanHardware(i, 0);
     }
@@ -1417,6 +1424,11 @@ void setup() {
   Serial.begin(115200);
   delay(100);
 
+  // Status LED starts in BLINKING mode immediately after reset.
+  pinMode(STATUS_LED_PIN, OUTPUT);
+  writeStatusLed(false);
+  lastStatusLedToggle = millis();
+
   Serial2.begin(
     9600,
     SERIAL_8N1,
@@ -1424,7 +1436,6 @@ void setup() {
     PZEM_TX_PIN
   );
 
-  // Outputs must start OFF before the rest of the system comes online.
   pinMode(FAN1_TRIAC_PIN, OUTPUT);
   pinMode(FAN2_TRIAC_PIN, OUTPUT);
   pinMode(FAN3_TRIAC_PIN, OUTPUT);
@@ -1469,7 +1480,6 @@ void setup() {
     Serial.println("BMP Error");
   }
 
-  // ESP32 Arduino 3.x timer API.
   triacTimer = timerBegin(1000000);
   if (triacTimer) {
     timerAttachInterrupt(triacTimer, &triacTimerISR);
@@ -1480,8 +1490,6 @@ void setup() {
 
   applyZcInterrupts();
 
-  // WiFi first. WDT is initialized after WiFiManager so the configuration
-  // portal cannot trip the watchdog.
   WiFi.mode(WIFI_STA);
   startWiFiManagerPortal();
 
@@ -1492,7 +1500,6 @@ void setup() {
   setupOTA();
   setupWebServer();
 
-  // Initialize stored output states without publishing before MQTT.
   restoreOutputs();
 
   esp_task_wdt_config_t twdt_config = {
@@ -1511,6 +1518,8 @@ void setup() {
   Serial.println("======================================");
   Serial.println("JARVIS AC FAN SYSTEM READY");
   Serial.println("Phase-angle TRIAC control enabled");
+  Serial.println("Status LED: BLINK = WiFi/MQTT not fully connected");
+  Serial.println("Status LED: SOLID = WiFi + MQTT connected");
   Serial.println("ZC profiles:");
   for (int i = 0; i < 4; i++) {
     Serial.print("  FAN");
@@ -1583,7 +1592,6 @@ void sensorTask() {
     lastWater = pct;
   }
 
-  // Preserve the original automatic motor logic.
   if (pct >= motor_stop_pct && digitalRead(MOTOR_PIN) == HIGH) {
     digitalWrite(MOTOR_PIN, LOW);
     pref.putBool("m_st", false);
@@ -1713,6 +1721,8 @@ void loop() {
   server.handleClient();
 
   mqttTask();
+
+  statusLedTask();
 
   publishZeroCrossStates();
 
