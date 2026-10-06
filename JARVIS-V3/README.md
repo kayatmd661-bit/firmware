@@ -1,389 +1,797 @@
-# JARVIS AC FAN + WATER CONTROLLER --- MASTER BUILD BOOK
+# JARVIS AC FAN + WATER CONTROLLER
+## বাংলা সম্পূর্ণ README / ইনস্টলেশন / আর্কিটেকচার / পিন-ম্যাপ / অপারেশন ম্যানুয়াল
 
-## সম্পূর্ণ বাংলা Master Documentation --- Hardware + Firmware + Dashboard + MQTT + Home Assistant + Wiring + Security + Commissioning
+> **ডকুমেন্টের ভিত্তি:** বর্তমান JARVIS firmware-এর source এবং সর্বশেষ Status-LED firmware revision।  
+> **গুরুত্বপূর্ণ:** এই README-তে hardware/component সম্পর্কে যা source-এ নির্দিষ্ট করা নেই, তা ইচ্ছাকৃতভাবে “নির্দিষ্ট নয় / যাচাই করতে হবে” হিসেবে রাখা হয়েছে।
 
-> **Source basis:**
-> `JARVIS_AC_FAN_WATER_CONTROLLER_COMPLETE_FIXED.ino`-এর বাস্তব source
-> audit এবং আগের README audit।\
-> **নিয়ম:** source-এ যা আছে সেটি **আছে**, যা নেই সেটি **নেই**, আর
-> hardware-dependent বিষয় **VERIFY/LOAD-SPECIFIC** হিসেবে চিহ্নিত করা
-> হয়েছে।
+---
 
-------------------------------------------------------------------------
+## 1. প্রজেক্টটি কী?
 
-# 1. প্রকল্পের পরিচয়
+এটি ESP32 ভিত্তিক একটি **AC Fan + Water Controller**। একই ESP32 থেকে:
 
-এটি ESP32-ভিত্তিক ৪-চ্যানেল AC ceiling-fan + water-motor controller।
+- ৪টি AC fan-এর ON/OFF control
+- ৪টি fan-এর 0–100% speed command
+- Zero-Cross synchronized **phase-angle TRIAC** speed control
+- DHT22 temperature/humidity
+- BMP280 pressure
+- PIR motion
+- Ultrasonic water-level measurement
+- PZEM electrical measurements
+- Automatic water motor control
+- MQTT
+- Home Assistant MQTT Discovery
+- WiFiManager configuration portal
+- Browser dashboard
+- Dashboard HTTP Basic Authentication
+- OTA update
+- Preferences/NVS configuration storage
+- Watchdog
+- WiFi + MQTT status LED
 
-### Built-in software features
+চলে।
 
--   ৪টি AC fan
--   AC phase-angle TRIAC speed control
--   ৪টি isolated zero-cross input
--   0--100% logical fan speed
--   প্রতি fan-এর ZC profile নির্বাচন
--   প্রতি fan-এর ZC timing offset: `-2000 … +2000 µs`
--   automatic mains half-cycle measurement
--   DHT22 temperature/humidity
--   BMP280 pressure
--   PIR motion
--   ultrasonic water level
--   automatic water motor control
--   PZEM004T electrical measurement
--   MQTT
--   Home Assistant MQTT Discovery
--   built-in web dashboard
--   WiFiManager first-time setup
--   Preferences/NVS
--   Arduino OTA
--   watchdog
--   non-blocking MQTT reconnect
+---
 
-**Fan speed control PWM নয়; এটি AC phase-angle control।**
+# 2. সম্পূর্ণ Architecture
 
-------------------------------------------------------------------------
+![JARVIS Architecture](JARVIS_AC_FAN_WATER_CONTROLLER_ARCHITECTURE_DIAGRAM.png)
 
-# 2. Dashboard কি আছে?
+### Data/control flow
 
-## হ্যাঁ, Dashboard আছে
-
-Firmware-এ HTTP `WebServer` port `80`-এ চালু হয়।
-
-``` text
-http://<ESP32-IP>/
-Browser
-   ↓
-http://ESP32-IP/
-   ↓
-┌──────────────────────────────┐
-│       JARVIS LOGIN           │
-│                              │
-│ Username: [ admin          ] │
-│ Password: [ admin12345 ] │
-│                              │
-│        [ LOGIN ]             │
-└──────────────────────────────┘
-   ↓
-সঠিক হলে
-   ↓
-JARVIS Dashboard
-```
-
-Dashboard-এ আছে:
-
--   Fan 1--4 ON/OFF
--   Fan 1--4 speed slider
--   Zero-cross health
--   Temperature
--   Humidity
--   Water %
--   Motor status
--   Voltage
--   Current
--   Power
--   Pressure
--   WiFi RSSI
--   MQTT status
--   MQTT settings
--   Home Assistant metadata
--   Fan minimum/maximum/startup speed
--   Tank empty/full distance
--   Motor start/stop %
--   প্রতি fan ZC profile
--   প্রতি fan ZC timing offset
-
-------------------------------------------------------------------------
-
-# 3. ⚠️ Admin username/password --- বাস্তব source status
-
-এটি খুব গুরুত্বপূর্ণ।
-
-## বর্তমান source-এ Dashboard authentication নেই।
-
-অর্থাৎ:
-
-``` text
-Dashboard username = নেই
-Dashboard password = নেই
-Admin username     = নেই
-Admin password     = নেই
-```
-
-বর্তমান endpoint:
-
-``` text
-GET  /
-GET  /api/status
-GET  /api/fan
-POST /save
-```
-
-তাই `admin / 12345678`-কে Dashboard login credential হিসেবে ব্যবহার করা
-যাবে না।
-
-**আগের কথোপকথনে admin credential বলা হলেও বর্তমান source audit-এ তা পাওয়া
-যায়নি। এই master document-এ তাই সেটিকে বাস্তব credential হিসেবে ঘোষণা করা
-হয়নি।**
-
-### Production security target
-
-Dashboard-এ authentication যোগ করতে হবে:
-
-``` text
-admin username
-+
-strong unique password
-```
-
-এবং `/`, `/api/status`, `/api/fan`, `/save`---সব protected করতে হবে।
-
-------------------------------------------------------------------------
-
-# 4. বর্তমান MQTT credential
-
-Source default:
-
-``` text
-MQTT Host     = homeassistant.local
-MQTT Port     = 1883
-MQTT Username = esp32
-MQTT Password = 12345678
-```
-
-এগুলো Preferences/NVS-এ পরিবর্তনযোগ্য।
-
-**Production-এ `12345678` ব্যবহার করা যাবে না।**
-
-------------------------------------------------------------------------
-
-# 5. WiFiManager
-
-First boot setup AP:
-
-``` text
-SSID = Jarvis_AP
-```
-
-WiFiManager-এ:
-
-``` text
-WiFi SSID
-WiFi Password
-
-MQTT Host
-MQTT Port
-MQTT Username
-MQTT Password
-
-Home Assistant Host/IP
-Home Assistant Port
-HA Device Name
-HA Device ID
-```
-
-**বর্তমান source-এ setup AP password explicitly configured নয়।
-Production-এ setup security policy দরকার।**
-
-------------------------------------------------------------------------
-
-# 6. OTA
-
-Hostname:
-
-``` text
-jarvis-fan-system
-```
-
-OTA আছে।
-
-কিন্তু:
-
-``` text
-OTA password = নেই
-```
-
-**Production-এ authenticated OTA অথবা trusted maintenance network
-দরকার।**
-
-------------------------------------------------------------------------
-
-# 7. সম্পূর্ণ architecture
-
-``` text
-                         HOME ASSISTANT
-                    Dashboard / Automation
+```text
+                  ┌─────────────────────────┐
+                  │        ESP32             │
+                  │ Arduino-ESP32 3.x       │
+                  └───────────┬─────────────┘
                               │
-                              │ MQTT
-                              ▼
-                         MQTT BROKER
-                              │
-                              ▼
-                    ┌───────────────────┐
-                    │      ESP32        │
-                    │ JARVIS CONTROLLER │
-                    ├───────────────────┤
-                    │ WiFiManager       │
-                    │ Web Dashboard     │
-                    │ MQTT              │
-                    │ OTA               │
-                    │ Preferences/NVS   │
-                    │ Watchdog          │
-                    │ ZC Engine         │
-                    │ Phase-Angle       │
-                    └───────┬───────────┘
-                            │
-          ┌─────────────────┼─────────────────┐
-          │                 │                 │
-       ZC ×4             TRIAC ×4          Sensors
-          │                 │                 │
-   isolated detector   random-phase       DHT/PIR/
-   H11AA1/module       optotriac           BMP/US/PZEM
-                            │
-                       power TRIAC
-                            │
-                         FAN ×4
+        ┌─────────────────────┼─────────────────────┐
+        │                     │                     │
+        ▼                     ▼                     ▼
+   Sensors/Input        AC Fan Control        Water Motor
+ DHT22 / BMP280 /      ZC → phase angle       Ultrasonic →
+ PIR / PZEM /          → random-phase         percentage →
+ Ultrasonic            optotriac → TRIAC      GPIO25
+        │                     │
+        └──────────────┬──────┘
+                       ▼
+                 MQTT Broker
+                       │
+                       ▼
+               Home Assistant
+                       │
+             MQTT Discovery
+                       │
+                       ▼
+                 HA Entities
 
-                         WATER CONTROL
-                              │
-                           GPIO25
-                              │
-                        motor driver
-                              │
-                         WATER MOTOR
+Browser ──HTTP :80──> ESP32 Dashboard
+WiFiManager ────────> ESP32 configuration
+OTA ────────────────> ESP32 firmware update
 ```
 
-------------------------------------------------------------------------
+---
 
-# 8. Embedded 3D-style diagram
+# 3. মূল Hardware / Technology
 
-``` text
-                    ╔══════════════════════════════════╗
-                   ╱       HOME ASSISTANT / MQTT      ╱│
-                  ╱ Dashboard • Automation • HA     ╱ │
-                 ╚══════════════════════════════════╝  │
-                 │                                     │
-                 │             MQTT / LAN              │
-                 ▼                                     │
-        ╔═══════════════════════════════════════════════╧══╗
-       ╱               ESP32 JARVIS CONTROLLER             ╱│
-      ╱ WiFi • Dashboard • MQTT • OTA • NVS • WDT • ZC   ╱ │
-     ╚═══════════════════════════════════════════════════╝  │
-     │       │       │       │       │       │             │
-     ▼       ▼       ▼       ▼       ▼       ▼             │
-    DHT     BMP     PIR     US     PZEM    MOTOR           │
-     │       │       │       │       │       │             │
-     └───────┴───────┴───────┴───────┘       ▼             │
-                                             DRIVER          │
-                                               │             │
-                                               ▼             │
-                                           WATER MOTOR       │
-                                                           │
-       ZC INPUT ×4                     TRIAC OUTPUT ×4     │
-            │                                  │           │
-     ╔══════╧══════╗                    ╔═════╧══════╗    │
-    ╱ isolated ZC  ╱│                   ╱ random     ╱│    │
-   ╚══════════════╝ │                  ╚════════════╝ │    │
-   │ H11AA1/module │                  │ optotriac   │ │    │
-   └───────────────┘                  └──────┬──────┘ │    │
-                                            ▼          │
-                                       POWER TRIAC     │
-                                            ▼          │
-                                           FAN         │
-```
+## 3.1 Main controller
 
-এই diagram-এ ESP32 এবং mains section-এর isolation boundary আলাদা ধরে
-নিতে হবে।
+| অংশ | বর্তমান design |
+|---|---|
+| MCU | ESP32 |
+| Framework | Arduino-ESP32 3.x |
+| Fan control | AC phase-angle TRIAC |
+| Synchronization | Isolated zero-cross detector |
+| Network | WiFi |
+| Messaging | MQTT |
+| HA integration | MQTT Discovery |
+| Web server | ESP32 `WebServer` |
+| Config | WiFiManager + Preferences/NVS |
+| Update | ArduinoOTA |
+| Safety monitoring | Watchdog |
 
-------------------------------------------------------------------------
+### Manufacturer / company সম্পর্কে
 
-# 9. Exact GPIO map
+- **ESP32** → Espressif-এর ESP32 family।
+- **Arduino-ESP32** → Espressif hardware-এর জন্য Arduino core।
+- **Adafruit_BMP280** library ব্যবহার করা হয়েছে BMP280-এর জন্য।
+- **PZEM004Tv30** library ব্যবহার করা হয়েছে PZEM-এর জন্য।
+- **DHT** library ব্যবহার করা হয়েছে DHT22-এর জন্য।
+- **WiFiManager**, **PubSubClient** এবং **ArduinoOTA** software libraries।
+- **DHT22, PZEM, PIR, ultrasonic module, power TRIAC এবং zero-cross circuit-এর exact manufacturer/source বর্তমান firmware-এ নির্দিষ্ট করা নেই।** তাই exact brand ধরে নেওয়া যাবে না।
 
-  কাজ                    GPIO Direction   মন্তব্য
-  -------------------- ------ ----------- -------------------
-  PZEM RX                  16 RX          Serial2
-  PZEM TX                  17 TX          Serial2
-  Fan 1 TRIAC              13 OUTPUT      optotriac input
-  Fan 2 TRIAC              14 OUTPUT      optotriac input
-  Fan 3 TRIAC              18 OUTPUT      optotriac input
-  Fan 4 TRIAC              19 OUTPUT      optotriac input
-  Fan 1 ZC                 23 INPUT/INT   isolated detector
-  Fan 2 ZC                 34 INPUT/INT   input-only
-  Fan 3 ZC                 35 INPUT/INT   input-only
-  Fan 4 ZC                 36 INPUT/INT   input-only
-  DHT22                    27 Digital     DATA
-  PIR                      26 INPUT       motion
-  Ultrasonic TRIG          32 OUTPUT      trigger
-  Ultrasonic ECHO          33 INPUT       echo
-  Water motor driver       25 OUTPUT      driver only
-  BMP280 SDA               21 I2C         address 0x76
-  BMP280 SCL               22 I2C         address 0x76
+---
 
-ESP32 GPIO34--39 classic ESP32-তে input-only এবং internal
-pull-up/pull-down নেই। তাই GPIO34/35/36-এর detector output-এ external
-bias/pull-up প্রয়োজন।
+# 4. GPIO / Pin Map — কোন GPIO কোথায়
 
-------------------------------------------------------------------------
+## 4.1 Fan TRIAC outputs
 
-# 10. Fan control architecture
+| Fan | ESP32 GPIO | কাজ |
+|---|---:|---|
+| Fan 1 TRIAC | GPIO13 | TRIAC gate driver output |
+| Fan 2 TRIAC | GPIO14 | TRIAC gate driver output |
+| Fan 3 TRIAC | GPIO18 | TRIAC gate driver output |
+| Fan 4 TRIAC | GPIO19 | TRIAC gate driver output |
 
-প্রতি channel:
+**এগুলো সরাসরি mains-এ যাবে না।** ESP32 output → appropriate resistor/driver arrangement → **random-phase optotriac** → power TRIAC gate architecture অনুযায়ী হবে।
 
-``` text
-ESP32 GPIO
-   │
-   ▼
-LED resistor
-   │
-   ▼
-RANDOM-PHASE OPTO-TRIAC
-   │
-   ▼
-TRIAC gate network
-   │
-   ▼
-POWER TRIAC
-   │
-   ▼
-AC FAN
-```
+---
 
-চারটি output:
+## 4.2 Zero-Cross inputs
 
-``` text
-Fan 1 → GPIO13
-Fan 2 → GPIO14
-Fan 3 → GPIO18
-Fan 4 → GPIO19
-```
+| Fan | GPIO | Firmware profile |
+|---|---:|---|
+| Fan 1 ZC | GPIO23 | AC-OPTO/RISING default |
+| Fan 2 ZC | GPIO34 | AC-OPTO/RISING default |
+| Fan 3 ZC | GPIO35 | AC-OPTO/RISING default |
+| Fan 4 ZC | GPIO36 | AC-OPTO/RISING default |
 
-**ESP32 GPIO কখনো mains-এ সরাসরি যাবে না।**
+### বিশেষ সতর্কতা
 
-------------------------------------------------------------------------
+GPIO34, GPIO35 এবং GPIO36 **input-only**। এগুলোতে internal pull-up ধরে নেওয়া যাবে না। Zero-cross detector output-এর জন্য প্রয়োজনীয় external bias/pull-up hardware-এ দিতে হবে।
 
-# 11. Zero-cross architecture
+---
 
-প্রতি channel:
+## 4.3 Sensors / motor
 
-``` text
+| Device | GPIO / interface |
+|---|---|
+| DHT22 data | GPIO27 |
+| PIR | GPIO26 |
+| Ultrasonic TRIG | GPIO32 |
+| Ultrasonic ECHO | GPIO33 |
+| Water motor control | GPIO25 |
+| I²C SDA | GPIO21 |
+| I²C SCL | GPIO22 |
+| PZEM RX | GPIO16 |
+| PZEM TX | GPIO17 |
+| Status LED | GPIO2 default |
+
+> Status LED-এর জন্য বর্তমান firmware-এ `STATUS_LED_PIN 2` রাখা হয়েছে। আপনার ESP32 board-এ onboard LED অন্য GPIO-তে হলে **শুধু এই definition পরিবর্তন করতে হবে**।
+
+---
+
+# 5. AC Fan Speed Control কীভাবে কাজ করে?
+
+এটি **PWM fan control নয়**।
+
+এটি:
+
+```text
 AC mains
    │
    ▼
-rated isolated AC zero-cross detector
-   │
-   │ isolation barrier
-   ▼
-phototransistor / module output
-   │
-   ▼
-external pull-up / logic stage
-   │
+Zero-Cross Detector
+   │ isolated low-voltage output
    ▼
 ESP32 ZC GPIO
+   │
+   ▼
+Zero-cross ISR
+   │
+   ▼
+Calculated phase delay
+   │
+   ▼
+TRIAC gate pulse
+   │
+   ▼
+Random-phase optotriac
+   │
+   ▼
+Power TRIAC
+   │
+   ▼
+AC Fan
 ```
 
-Profiles:
+Firmware mains half-cycle মাপতে পারে এবং default 50 Hz baseline ব্যবহার করে।
 
-``` text
+- Timer tick: **20 µs**
+- TRIAC gate pulse: **~120 µs**
+- Early margin: **250 µs**
+- Late margin: **500 µs**
+- Auto mains timing: enabled
+
+---
+
+# 6. কোন Optotriac ব্যবহার করা যাবে?
+
+## Phase-angle speed control-এর জন্য
+
+Firmware documentation-এ random-phase driver class হিসেবে উল্লেখ আছে:
+
+- MOC3020
+- MOC3021
+- MOC3022
+- MOC3023
+- MOC3051
+- MOC3052
+- Vishay VOT8121 family / equivalent random-phase phototriac driver
+
+### 120/127 VAC
+
+MOC302x family appropriate হতে পারে **তার নিজস্ব ratings এবং power-stage design-এর মধ্যে**।
+
+### 220/230/240 VAC
+
+Driver + power TRIAC-এর voltage rating এবং surge margin অবশ্যই actual mains অনুযায়ী নির্বাচন করতে হবে। Firmware source-এ MOC3051/MOC3052 বা equivalent 600/800 V random-phase driver safer listed choice হিসেবে উল্লেখ করা হয়েছে।
+
+---
+
+# 7. কোন Optotriac ব্যবহার করা যাবে না?
+
+### ❌ MOC306x দিয়ে এই phase-angle speed control করবেন না
+
+বিশেষ করে:
+
+- MOC3062
+- MOC3063
+- একই ধরনের zero-cross phototriac driver
+
+কারণ এগুলো zero-cross switching-এর জন্য; arbitrary phase-angle firing-এর জন্য নয়।
+
+---
+
+# 8. Zero-Cross detector কী ব্যবহার করা যাবে?
+
+Firmware profile আছে:
+
+1. AC-OPTO / RISING
+2. AC-OPTO / FALLING
+3. MODULE / RISING
+4. MODULE / FALLING
+5. PC817 AC DETECTOR / RISING
+6. PC817 AC DETECTOR / FALLING
+
+Source-এ AC-input optocoupler class হিসেবে উদাহরণ:
+
+- H11AA1
+- IL250
+- IL252
+- LTV-814/LTV-824/LTV-844 AC-input versions
+
+PC817-এর ক্ষেত্রে:
+
+> **PC817 নিজে সরাসরি AC mains-এ লাগানো যাবে না।**
+
+Proper rectifier/front-end এবং current-limiting network দরকার।
+
+### Commercial zero-cross module
+
+শুধু তখনই ব্যবহারযোগ্য যখন module-এর output:
+
+- electrically isolated,
+- ESP32-safe voltage level,
+- এবং selected rising/falling profile-এর সাথে compatible।
+
+---
+
+# 9. কোন hardware ব্যবহার করা যাবে না?
+
+নিচের জিনিসগুলো source-এর architecture অনুযায়ী সরাসরি ব্যবহার করা যাবে না:
+
+### ❌ Phase-angle-এর জায়গায় zero-cross optotriac
+MOC306x/VOT8024 class।
+
+### ❌ PC817-কে raw AC mains-এ সরাসরি
+PC817-এর জন্য proper AC detector front-end দরকার।
+
+### ❌ ESP32 GPIO-তে mains
+কখনোই নয়।
+
+### ❌ Non-isolated zero-cross output
+ESP32-এর সাথে সরাসরি mains-derived non-isolated signal architecture ব্যবহার করা যাবে না।
+
+### ❌ GPIO34–36-এ internal pull-up-এর উপর নির্ভর
+এই pins input-only; external bias দরকার।
+
+### ❌ Power TRIAC/fuse/snubber/MOV না জেনে random component
+Mains stage actual voltage/current অনুযায়ী engineer করতে হবে।
+
+---
+
+# 10. Mains safety
+
+এটি সবচেয়ে গুরুত্বপূর্ণ অংশ।
+
+```text
+          MAINS SIDE
+  ┌─────────────────────────────┐
+  │ Fuse                        │
+  │ MOV                         │
+  │ Power TRIAC                 │
+  │ RC snubber                  │
+  │ Fan load                    │
+  │ Proper creepage/clearance   │
+  └──────────────┬──────────────┘
+                 │
+        GALVANIC ISOLATION
+                 │
+  ┌──────────────▼──────────────┐
+  │ LOW VOLTAGE ESP32 SIDE      │
+  │ GPIO / logic / MQTT / WiFi  │
+  └─────────────────────────────┘
+```
+
+Mains-side fuse, MOV, snubber, TRIAC rating, heatsink, creepage/clearance, PCB layout এবং enclosure **actual mains voltage এবং fan current অনুযায়ী qualified electrical designer দ্বারা যাচাই করতে হবে।**
+
+---
+
+# 11. Sensors
+
+## DHT22
+
+- GPIO27
+- Temperature
+- Humidity
+
+## BMP280
+
+I²C:
+
+- SDA → GPIO21
+- SCL → GPIO22
+- Address → firmware-এ `0x76`
+
+## PIR
+
+- GPIO26
+
+## Ultrasonic
+
+- TRIG → GPIO32
+- ECHO → GPIO33
+
+Firmware distance থেকে water percentage হিসাব করে।
+
+Default:
+
+- Tank empty distance = 110 cm
+- Tank full distance = 10 cm
+
+Dashboard থেকে পরিবর্তনযোগ্য।
+
+## PZEM
+
+UART2:
+
+- RX → GPIO16
+- TX → GPIO17
+
+Firmware voltage/current/power publish করে।
+
+---
+
+# 12. Water motor logic
+
+Motor output:
+
+**GPIO25**
+
+Default water logic:
+
+- Water percentage ≤ `motor_start_pct` → motor ON
+- Water percentage ≥ `motor_stop_pct` → motor OFF
+
+Default:
+
+- Start = 15%
+- Stop = 98%
+
+### Boot safety
+
+Reboot-এর পর motor-এর saved state blindly restore করা হয় না।
+
+Motor boot-এ:
+
+```text
+OFF
+```
+
+থাকে।
+
+তারপর normal water-level logic motor চালানোর অনুমতি দেয়।
+
+---
+
+# 13. MQTT
+
+Default broker:
+
+```text
+homeassistant.local
+```
+
+Default port:
+
+```text
+1883
+```
+
+Default MQTT username:
+
+```text
+esp32
+```
+
+Default MQTT password:
+
+```text
+12345678
+```
+
+> **Production deployment-এর আগে MQTT password অবশ্যই পরিবর্তন করুন।**
+
+---
+
+# 14. MQTT Topics
+
+## Availability
+
+```text
+jarvis/status/availability
+```
+
+Values:
+
+```text
+online
+offline
+```
+
+## Fan command
+
+Fan 1:
+
+```text
+jarvis/sf1/cmd
+jarvis/sf1/speed/cmd
+```
+
+Fan 2:
+
+```text
+jarvis/sf2/cmd
+jarvis/sf2/speed/cmd
+```
+
+Fan 3:
+
+```text
+jarvis/sf3/cmd
+jarvis/sf3/speed/cmd
+```
+
+Fan 4:
+
+```text
+jarvis/sf4/cmd
+jarvis/sf4/speed/cmd
+```
+
+ON/OFF state:
+
+```text
+jarvis/status/sf1
+jarvis/status/sf2
+jarvis/status/sf3
+jarvis/status/sf4
+```
+
+Speed state:
+
+```text
+jarvis/status/sf1/speed
+...
+```
+
+Zero-cross status:
+
+```text
+jarvis/status/sf1/zc
+...
+```
+
+Motor:
+
+```text
+jarvis/motor/cmd
+jarvis/status/motor
+```
+
+Sensors:
+
+```text
+jarvis/sensor/water_pct
+jarvis/sensor/temp
+jarvis/sensor/hum
+jarvis/sensor/volt
+jarvis/sensor/curr
+jarvis/sensor/pwr
+jarvis/sensor/pir
+jarvis/sensor/pressure
+```
+
+---
+
+# 15. Home Assistant integration
+
+Firmware **MQTT Discovery** ব্যবহার করে।
+
+Home Assistant MQTT broker-এ connected হওয়ার পর firmware নিজে discovery configuration publish করে।
+
+এর ফলে:
+
+- 4 Fan entity
+- Temperature
+- Humidity
+- Water level
+- Voltage
+- Current
+- Power
+- Pressure
+- PIR
+- Water motor
+- 4 Zero-cross status
+
+ইত্যাদি Home Assistant-এ তৈরি হতে পারে।
+
+### Device information
+
+Firmware discovery-তে:
+
+```text
+Manufacturer: Jarvis
+Model: AC Fan & Water Controller
+```
+
+এবং configured device name/ID ব্যবহার করা হয়।
+
+---
+
+# 16. WiFi configuration
+
+WiFiManager ব্যবহার করা হয়েছে।
+
+যখন ESP32-তে valid WiFi connection/configuration পাওয়া যায় না, WiFiManager configuration portal চালু করতে পারে।
+
+AP name:
+
+```text
+Jarvis_AP
+```
+
+Portal-এ MQTT এবং Home Assistant-এর configuration parameters-ও আছে।
+
+Configuration NVS-এ save হয়।
+
+---
+
+# 17. Dashboard কীভাবে খুলবেন?
+
+ESP32 এবং ফোন/PC **একই LAN/WiFi network**-এ থাকলে ESP32-এর IP address বের করুন।
+
+তারপর browser-এ:
+
+```text
+http://ESP32_IP/
+```
+
+উদাহরণ:
+
+```text
+http://192.168.1.50/
+```
+
+> Exact IP আপনার router/DHCP-এর উপর নির্ভর করে; firmware fixed IP ধরে নিচ্ছে না।
+
+---
+
+# 18. Dashboard login
+
+বর্তমান firmware-এ Dashboard আলাদা admin authentication ব্যবহার করে।
+
+Default:
+
+```text
+Username: admin
+Password: admin12345
+```
+
+এটি MQTT password থেকে আলাদা।
+
+### Browser কী করবে?
+
+Dashboard খুললে browser HTTP Basic Authentication চাইবে।
+
+সেখানে:
+
+```text
+admin
+admin12345
+```
+
+দিতে হবে।
+
+---
+
+# 19. Admin password পরিবর্তন
+
+Authenticated dashboard-এ **Dashboard Admin Security** section থেকে username/password পরিবর্তন করা যায়।
+
+নতুন password-এর minimum length:
+
+```text
+8 characters
+```
+
+Password NVS-এ সংরক্ষিত হয়।
+
+---
+
+# 20. Password ভুলে গেলে / Reset
+
+### গুরুত্বপূর্ণ
+
+Firmware-এ সাধারণ “Reset button চাপলেই admin password factory default” ধরনের আলাদা documented physical reset procedure নেই।
+
+তাই password ভুলে গেলে:
+
+1. ESP32-এর serial/firmware access ব্যবহার করে recovery করতে হবে, অথবা
+2. NVS/configuration erase করে factory configuration পুনরায় নিতে হবে।
+
+### NVS erase করলে কী হারাতে পারে?
+
+NVS-এ শুধু admin password নয়, আরও configuration থাকে:
+
+- MQTT host
+- MQTT port
+- MQTT username/password
+- HA host/port/name/ID
+- fan limits
+- startup speed
+- water thresholds
+- ZC profiles
+- ZC timing offsets
+- saved fan speeds
+- motor state data
+
+তাই **NVS erase = শুধু password reset নয়; configuration reset হিসেবেও বিবেচনা করতে হবে।**
+
+> ভবিষ্যতে আলাদা physical “Factory Reset” button যোগ করতে হলে সেটি এই README-র বর্তমান firmware-এর অংশ হিসেবে ধরে নেওয়া যাবে না।
+
+---
+
+# 21. Status LED
+
+বর্তমান firmware-এ:
+
+```text
+STATUS_LED_PIN = GPIO2
+```
+
+LED logic:
+
+### Reset / Boot
+
+```text
+BLINK
+```
+
+### WiFi disconnected
+
+```text
+BLINK
+```
+
+### WiFi connected কিন্তু MQTT disconnected
+
+```text
+BLINK
+```
+
+### WiFi + MQTT দুটোই connected
+
+```text
+SOLID ON
+```
+
+### যেকোনো connection আবার drop করলে
+
+```text
+BLINK
+```
+
+Blink interval:
+
+```text
+500 ms
+```
+
+---
+
+# 22. OTA
+
+OTA hostname:
+
+```text
+jarvis-fan-system
+```
+
+OTA password বর্তমান firmware-এ configured MQTT password থেকে নেওয়া হয়।
+
+অর্থাৎ MQTT password পরিবর্তন করলে নতুন OTA password **পরবর্তী reboot-এর পরে** কার্যকর হয়।
+
+---
+
+# 23. Preferences / NVS
+
+Namespace:
+
+```text
+jarvis_sys
+```
+
+এখানে configuration/state-এর গুরুত্বপূর্ণ অংশ সংরক্ষণ করা হয়।
+
+উদাহরণ:
+
+```text
+mqtt_host
+mqtt_port
+mqtt_user
+mqtt_pass
+
+adm_user
+adm_pass
+
+ha_host
+ha_port
+ha_name
+ha_id
+
+f_min
+f_max
+f_start
+
+t_e
+t_f
+m_s
+m_p
+
+zc0 ... zc3
+zco0 ... zco3
+
+sf1_sp ... sf4_sp
+m_st
+```
+
+---
+
+# 24. Fan speed persistence
+
+Fan-এর শেষ speed NVS-এ save হয়।
+
+Reboot-এর পরে saved fan speed restore হতে পারে।
+
+Motor-এর ক্ষেত্রে আলাদা safety behavior:
+
+```text
+Motor boot = OFF
+```
+
+তারপর water-level automation motor চালাতে পারে।
+
+---
+
+# 25. Zero-Cross profile পরিবর্তন
+
+Dashboard-এর Configuration section-এ প্রতি fan-এর জন্য profile নির্বাচন করা যায়।
+
+Available:
+
+```text
 AC-OPTO / RISING
 AC-OPTO / FALLING
 
@@ -394,987 +802,341 @@ PC817 AC DETECTOR / RISING
 PC817 AC DETECTOR / FALLING
 ```
 
-Recommended common class:
+Timing offset:
 
-``` text
-H11AA1-class AC optocoupler
+```text
+-2000 µs ... +2000 µs
 ```
 
-PC817 হলে proper mains-side rectifier/current-limiting circuit ছাড়া
-ব্যবহার করা যাবে না।
+NVS-এ save হয়।
 
-------------------------------------------------------------------------
+Firmware rebuild ছাড়াই profile পরিবর্তন করা যায়।
 
-# 12. Random-phase optotriac
+---
 
-Phase-angle control-এর জন্য:
+# 26. Recommended commissioning sequence
 
-``` text
-MOC3020
-MOC3021
-MOC3022
-MOC3023 / MOC3023M
-MOC3051
-MOC3052
-সমমান random-phase phototriac
-```
+## ধাপ ১ — Mains connect করার আগে
 
-### ব্যবহার করা যাবে না
-
-``` text
-MOC306x
-অথবা অন্য zero-cross-only optotriac
-```
-
-কারণ arbitrary phase firing দরকার।
-
-বর্তমান distributor listings-এ MOC3023 original/variants ও alternatives
-পাওয়া যায়; exact manufacturer/suffix production BOM-এ freeze করতে হবে।
-
-------------------------------------------------------------------------
-
-# 13. Power TRIAC
-
-একটি universal TRIAC firmware থেকে নির্ধারিত হয়নি।
-
-নির্ভর করে:
-
--   120/127/220/230/240 V
--   fan current
--   startup/inrush
--   Igt
--   holding current
--   dv/dt
--   di/dt
--   thermal design
--   heatsink
--   enclosure
-
-BT136-600-class 600 V/4 A variants বাজারে পাওয়া যায়, কিন্তু **এটি আপনার
-fan-এর final TRIAC ধরে নেওয়া যাবে না**।
-
-Final TRIAC load এবং datasheet দেখে নির্বাচন করতে হবে।
-
-------------------------------------------------------------------------
-
-# 14. Mains protection
-
-প্রয়োজন অনুযায়ী:
-
-``` text
-Fuse
-MOV
-RC snubber
-Gate resistor network
-Thermal management
-Rated terminals
-Creepage
-Clearance
-Touch-safe enclosure
-```
-
-### Universal component value দেওয়া হয়নি
-
-কারণ:
-
-``` text
-Fuse = load/current/surge dependent
-MOV = mains/system dependent
-Snubber = TRIAC + motor dependent
-Mains resistor = voltage + detector current + pulse/surge dependent
-```
-
-এগুলো আন্দাজ করে বসানো যাবে না।
-
-------------------------------------------------------------------------
-
-# 15. Low-voltage BOM
-
-### Controller
-
--   ESP32 Dev Module / compatible ESP32
--   regulated power supply
--   terminal blocks
--   enclosure
-
-### Fan ×4
-
-প্রতি channel:
-
--   random-phase optotriac
--   power TRIAC
--   gate resistor network
--   required snubber/protection
--   fuse/protection
--   heatsink if required
-
-### ZC ×4
-
-প্রতি channel:
-
--   H11AA1-class detector অথবা verified isolated ZC module
--   mains-side rated resistor/network
--   external pull-up/bias
--   isolation barrier
-
-### Sensors
-
--   DHT22
--   BMP280
--   PIR
--   ultrasonic sensor
--   PZEM004T v3.x class
-
-### Motor
-
--   appropriately rated relay/contactor/SSR
--   driver stage
--   suppression
--   fuse/protection
-
-------------------------------------------------------------------------
-
-# 16. Sensor wiring
-
-## DHT22
-
-``` text
-GPIO27 ← DATA
-3.3V   → VCC
-GND    → GND
-```
-
-## PIR
-
-``` text
-PIR OUT → GPIO26
-PIR GND → GND
-PIR VCC → module specification
-```
-
-## Ultrasonic
-
-``` text
-TRIG → GPIO32
-ECHO → GPIO33
-```
-
-**5 V ECHO হলে level shifting ছাড়া ESP32-তে দেওয়া যাবে না।**
-
-## BMP280
-
-``` text
-SDA → GPIO21
-SCL → GPIO22
-Address = 0x76
-```
-
-## PZEM
-
-``` text
-RX → GPIO16
-TX → GPIO17
-Serial2 = 9600 8N1
-```
-
-## Motor
-
-``` text
-GPIO25
-   ↓
-motor driver
-   ↓
-pump/motor
-```
-
-GPIO25 সরাসরি motor drive করবে না।
-
-------------------------------------------------------------------------
-
-# 17. Water logic
-
-Default:
-
-``` text
-Empty distance = 110 cm
-Full distance  = 10 cm
-
-Motor START ≤ 15%
-Motor STOP  ≥ 98%
-```
-
-Mapping:
-
-``` text
-110 cm → 0%
-10 cm  → 100%
-```
-
-Logic:
-
-``` text
-water <= 15% → ON
-water >= 98% → OFF
-```
-
-------------------------------------------------------------------------
-
-# 18. Phase-angle timing
-
-Current firmware:
-
-``` text
-Nominal mains = 50 Hz
-Half-cycle    = 10 ms
-Timer tick    = 20 µs
-Gate pulse    = 120 µs
-Early margin  = 250 µs
-Late margin   = 500 µs
-Default min   = 20%
-```
-
-Concept:
-
-``` text
-100% → half-cycle-এর শুরুতে firing
- 50% → মাঝামাঝি usable window
- 20% → late firing
-  0% → gate pulse নেই
-```
-
-এটি AC phase-angle control, DC PWM নয়।
-
-------------------------------------------------------------------------
-
-# 19. ZC timing
-
-Valid detector edge থেকে firmware half-cycle measure করে।
-
-Accepted:
-
-``` text
-7 ms … 12 ms
-```
-
-Minimum edge spacing:
-
-``` text
-2500 µs
-```
-
-Per-fan correction:
-
-``` text
--2000 … +2000 µs
-```
-
-Commissioning default:
-
-``` text
-Profile = actual detector polarity
-Offset  = 0 µs
-```
-
-------------------------------------------------------------------------
-
-# 20. MQTT master topics
-
-### Availability
-
-``` text
-jarvis/status/availability
-```
-
-### Fan ON/OFF
-
-``` text
-jarvis/sf1/cmd
-jarvis/sf2/cmd
-jarvis/sf3/cmd
-jarvis/sf4/cmd
-```
-
-Payload:
-
-``` text
-ON
-OFF
-```
-
-### Fan speed
-
-``` text
-jarvis/sf1/speed/cmd
-...
-jarvis/sf4/speed/cmd
-```
-
-Payload:
-
-``` text
-0–100
-```
-
-### State
-
-``` text
-jarvis/status/sf1
-...
-jarvis/status/sf4
-```
-
-### Speed state
-
-``` text
-jarvis/status/sf1/speed
-...
-jarvis/status/sf4/speed
-```
-
-### ZC health
-
-``` text
-jarvis/status/sf1/zc
-...
-jarvis/status/sf4/zc
-```
-
-### Motor
-
-``` text
-jarvis/motor/cmd
-jarvis/status/motor
-```
-
-### Sensors
-
-``` text
-jarvis/sensor/water_pct
-jarvis/sensor/temp
-jarvis/sensor/hum
-jarvis/sensor/pressure
-jarvis/sensor/volt
-jarvis/sensor/curr
-jarvis/sensor/pwr
-jarvis/sensor/pir
-```
-
-### Tank settings
-
-``` text
-jarvis/settings/empty/set
-jarvis/settings/full/set
-```
-
-------------------------------------------------------------------------
-
-# 21. Home Assistant MQTT Discovery
-
-Discovery prefix:
-
-``` text
-homeassistant
-```
-
-বর্তমান firmware discover করে:
-
--   4 fan
--   temperature
--   humidity
--   water %
--   voltage
--   current
--   power
--   pressure
--   PIR
--   water motor switch
--   4 zero-cross health binary sensors
-
-MQTT Discovery-তে unique ID/device configuration ব্যবহার করা হয়েছে।
-
-**Actual HA control/discovery transport = MQTT।**
-
-`haHost`/`haPort` direct HA REST/WebSocket connection-এর প্রমাণ নয়।
-
-------------------------------------------------------------------------
-
-# 22. Dashboard/API master list
-
-### Dashboard
-
-``` text
-GET /
-```
-
-### Status
-
-``` text
-GET /api/status
-```
-
-### Fan
-
-``` text
-GET /api/fan?i=0&speed=50
-GET /api/fan?i=0&state=1
-GET /api/fan?i=0&state=0
-```
-
-Fan index:
-
-``` text
-0 = Fan 1
-1 = Fan 2
-2 = Fan 3
-3 = Fan 4
-```
-
-### Configuration
-
-``` text
-POST /save
-```
-
-------------------------------------------------------------------------
-
-# 23. NVS / persistence
-
-Namespace:
-
-``` text
-jarvis_sys
-```
-
-Stored:
-
-``` text
-MQTT host/port/user/password
-HA host/port/name/id
-Fan min/max/startup
-Tank empty/full
-Motor start/stop
-ZC profile ×4
-ZC offset ×4
-Fan speed states
-Motor state
-```
-
-Power-cycle-এর পর configuration থাকে।
-
-------------------------------------------------------------------------
-
-# 24. Power restore safety
-
-বর্তমান source saved output state restore করতে পারে।
-
-### Fan
-
-Saved non-zero speed থাকলে fan restore হতে পারে।
-
-### Motor
-
-Saved motor state `ON` হলে GPIO25 HIGH হতে পারে।
-
-**Production safety decision হিসেবে এটি আলাদাভাবে approve করতে হবে।**
-
-Safer target:
-
-``` text
-BOOT
- ↓
-Fan OFF
-Motor OFF
- ↓
-Sensors + ZC initialize
- ↓
-Water logic authorize করলে motor
- ↓
-User/MQTT command দিলে fan
-```
-
-এটি **বর্তমান source-এর behavior নয়; production target policy**।
-
-------------------------------------------------------------------------
-
-# 25. Watchdog
-
-``` text
-WDT = 5 seconds
-```
-
-Main loop handles:
-
-``` text
-WiFi
-OTA
-WebServer
-MQTT
-ZC health
-Sensors
-Watchdog
-```
-
-MQTT reconnect non-blocking।
-
-------------------------------------------------------------------------
-
-# 26. Security audit
-
-  বিষয়              বর্তমান অবস্থা
-  ----------------- --------------------------
-  Dashboard         আছে
-  Dashboard login   নেই
-  Admin username    নেই
-  Admin password    নেই
-  MQTT username     `esp32` default
-  MQTT password     `12345678` default
-  OTA               আছে
-  OTA password      নেই
-  HTTPS             নেই
-  MQTT TLS          source-এ নেই
-  NVS               আছে
-  ZC isolation      hardware-dependent
-  Motor isolation   external driver required
-
-### Production target
-
-``` text
-Dashboard → authentication
-API       → authentication
-OTA       → authentication
-MQTT      → unique credentials + ACL
-Network   → trusted LAN/VLAN
-Setup AP  → protected commissioning
-```
-
-------------------------------------------------------------------------
-
-# 27. Safety rules
-
-Never:
-
-``` text
-ESP32 GPIO → mains
-ESP32 GPIO → fan wire
-ESP32 GPIO → pump wire
-ESP32 GPIO → power TRIAC gate directly
-PC817 LED → mains directly
-```
-
-Use:
-
-``` text
-ESP32
- ↓
-isolated optocoupler
- ↓
-TRIAC driver
- ↓
-power TRIAC
- ↓
-fan
-```
-
-Zero-cross:
-
-``` text
-mains
- ↓
-rated isolated detector
- ↓
-isolation barrier
- ↓
-ESP32
-```
-
-**Mains circuit breadboard-এ test করা যাবে না।**
-
-------------------------------------------------------------------------
-
-# 28. Commissioning sequence
-
-## A --- ESP32 only
-
--   flash
--   serial 115200
--   boot
--   verify fan outputs LOW
--   verify motor LOW
-
-## B --- WiFi
-
--   connect `Jarvis_AP`
--   configure WiFi
--   obtain IP
-
-## C --- Dashboard
-
-``` text
-http://ESP32-IP/
-```
-
-## D --- MQTT
-
--   broker settings
--   online availability
--   discovery
--   command/state
-
-## E --- Sensors
-
-Test separately:
-
-``` text
-DHT22
-BMP280
-PIR
-Ultrasonic
-PZEM
-```
-
-## F --- ZC
-
-প্রতি channel:
-
-``` text
-ZC = OK
-Half-cycle ≈ expected
-No false edge storm
-```
-
-## G --- Fan
-
-একটি fan:
-
-``` text
-OFF
-→ 100%
-→ 80%
-→ 60%
-→ 40%
-→ minimum
-```
-
-তারপর 2, 3, 4।
-
-------------------------------------------------------------------------
-
-# 29. Troubleshooting
-
-## Fan কাজ করছে না
+শুধু ESP32 + low-voltage electronics test করুন।
 
 Check:
 
-1.  ZC `OK`
-2.  RISING/FALLING profile
-3.  speed \> minimum
-4.  random-phase optotriac
-5.  gate circuit
-6.  power TRIAC
-7.  fuse/protection
+- GPIO map
+- DHT22
+- BMP280
+- PIR
+- ultrasonic
+- PZEM
+- WiFi
+- MQTT
+- dashboard
+- status LED
+
+## ধাপ ২ — Zero-cross test
+
+প্রতিটি ZC input আলাদাভাবে verify করুন।
+
+Dashboard-এ:
+
+```text
+ZC = OK
+```
+
+আসা উচিত।
+
+## ধাপ ৩ — TRIAC stage
+
+Fan connected করার আগে gate driver এবং power-stage qualified hardware test করুন।
+
+## ধাপ ৪ — One fan
+
+প্রথমে একটি fan দিয়ে:
+
+```text
+OFF
+20%
+40%
+60%
+80%
+100%
+```
+
+test করুন।
+
+## ধাপ ৫ — সব fan
+
+তারপর Fan 1–4 একসাথে test করুন।
+
+## ধাপ ৬ — Water system
+
+Ultrasonic distance এবং percentage verify করুন।
+
+তারপর motor start/stop thresholds test করুন।
+
+---
+
+# 27. Troubleshooting
+
+## LED সবসময় blink
+
+সম্ভাব্য:
+
+- WiFi connected নয়
+- MQTT connected নয়
+- MQTT broker unreachable
+- MQTT credentials ভুল
+
+## WiFi আছে, MQTT নেই
+
+Check:
+
+```text
+MQTT Host
+MQTT Port
+MQTT Username
+MQTT Password
+Broker running?
+```
+
+## Fan ON কিন্তু speed control কাজ করছে না
+
+Check:
+
+- Zero-cross detector
+- ZC GPIO
+- ZC profile
+- external pull-up/bias
+- random-phase optotriac
+- power TRIAC stage
+- fan compatibility
+- ZC dashboard status
 
 ## ZC FAULT
 
 Check:
 
-1.  detector mains input
-2.  isolation
-3.  pull-up
-4.  GPIO34/35/36 external bias
-5.  polarity
-6.  ESP32-safe output voltage
+- correct GPIO
+- detector output
+- external pull-up
+- correct rising/falling profile
+- isolation
+- mains-side detector circuit
 
-## Fan hum/noise
-
-সম্ভাব্য:
-
--   motor/fan phase-angle incompatibility
--   low-speed behavior
--   gate drive
--   TRIAC selection
--   snubber/EMI
--   minimum firing window
-
-## MQTT unavailable
+## Motor ভুল সময় ON/OFF
 
 Check:
 
-``` text
-WiFi
-Broker IP
-Port
-Username
-Password
-ACL
+```text
+Tank Empty Distance
+Tank Full Distance
+Motor Start Water %
+Motor Stop Water %
 ```
 
-## HA entity missing
+## Dashboard খুলছে না
 
 Check:
 
-``` text
-MQTT integration
-Discovery enabled
-homeassistant/# topics
-unique_id
-broker connection
+1. ESP32 IP
+2. Same LAN
+3. `http://IP/`
+4. browser authentication
+5. admin username/password
+
+---
+
+# 28. Security notes
+
+### Dashboard
+
+বর্তমান dashboard HTTP Basic Authentication ব্যবহার করে।
+
+কিন্তু এটি:
+
+```text
+HTTP
 ```
 
-------------------------------------------------------------------------
+— HTTPS নয়।
 
-# 30. Market/component reference
+তাই password public Internet-এ expose করা যাবে না।
 
-বর্তমান market/distributor references-এ সাধারণত পাওয়া যায়:
+### Recommended
 
-### Zero-cross
+ESP32 dashboard:
 
--   H11AA1-family AC optocoupler
--   H11AA1-compatible variants
--   verified isolated ZC modules
+```text
+Trusted LAN / VLAN
+```
 
-### Phase optotriac
+এর মধ্যে রাখুন।
 
--   MOC3023/MOC3023M class
--   MOC302x family
--   MOC305x family
--   equivalent random-phase drivers
+Router port-forward করে সরাসরি Internet-এ expose করবেন না।
 
-### Power TRIAC
+### MQTT
 
--   BT136-600 class
--   other 600/800 V TRIAC families selected from actual load
+Default password:
 
-**Stock/price/manufacturer suffix পরিবর্তনশীল; final BOM freeze করার আগে
-exact datasheet + distributor listing verify করতে হবে।**
-
-------------------------------------------------------------------------
-
-# 31. Source audit findings
-
-## AUDIT-1 --- WiFiManager custom parameter lifecycle
-
-Non-blocking portal-এর custom fields delayed submission-এর ক্ষেত্রে
-আলাদাভাবে verify করা দরকার।
-
-**Status: REVIEW REQUIRED**
-
-## AUDIT-2 --- Dashboard authentication
-
-Authentication নেই।
-
-**Status: SECURITY WARNING**
-
-## AUDIT-3 --- OTA authentication
-
-Password নেই।
-
-**Status: SECURITY WARNING**
-
-## AUDIT-4 --- default MQTT password
-
-``` text
+```text
 12345678
 ```
 
-**Status: MUST CHANGE**
+production-এর জন্য যথেষ্ট শক্তিশালী নয়।
 
-## AUDIT-5 --- motor restore
+প্রথম commissioning-এর পর পরিবর্তন করুন।
 
-Saved motor state restore হতে পারে।
+---
 
-**Status: SAFETY REVIEW**
-
-## AUDIT-6 --- fan restore
-
-Saved non-zero fan speed restore হতে পারে।
-
-**Status: BEHAVIOR REVIEW**
-
-## AUDIT-7 --- HA host/port
-
-MQTT metadata; direct HA API নয়।
-
-**Status: DOCUMENTED**
-
-## AUDIT-8 --- mains component values
-
-Universal values না দেওয়াই সঠিক।
-
-**Status: LOAD-SPECIFIC**
-
-------------------------------------------------------------------------
-
-# 32. Production checklist
+# 29. কোন অংশ firmware, কোন অংশ hardware
 
 ## Firmware
 
--   [ ] Arduino-ESP32 version freeze
--   [ ] libraries freeze
--   [ ] compile clean
--   [ ] ZC ISR clean
--   [ ] WDT test
--   [ ] WiFi reconnect test
--   [ ] MQTT reconnect test
--   [ ] Dashboard test
--   [ ] API test
--   [ ] NVS test
--   [ ] OTA test
--   [ ] HA discovery test
+- Fan control algorithm
+- Zero-cross timing
+- MQTT
+- HA Discovery
+- Dashboard
+- WiFiManager
+- OTA
+- WDT
+- NVS
+- Sensor polling
+- Water percentage logic
+- Motor logic
+- Status LED
 
-## Security
+## Hardware
 
--   [ ] Dashboard login যোগ করা
--   [ ] strong admin password
--   [ ] OTA authentication
--   [ ] MQTT password change
--   [ ] MQTT ACL
--   [ ] network restriction
--   [ ] setup AP security
+- ESP32
+- DHT22
+- BMP280
+- PIR
+- Ultrasonic sensor
+- PZEM
+- Zero-cross detector
+- Optotriac
+- Power TRIAC
+- Fuse
+- MOV
+- Snubber
+- Heatsink
+- Motor switching stage
+- Proper isolated power supply
 
-## Fan hardware
+---
 
--   [ ] mains voltage confirmed
--   [ ] mains frequency confirmed
--   [ ] random-phase optotriac confirmed
--   [ ] power TRIAC confirmed
--   [ ] gate network confirmed
--   [ ] fuse confirmed
--   [ ] MOV confirmed
--   [ ] snubber confirmed
--   [ ] heatsink confirmed
--   [ ] creepage confirmed
--   [ ] clearance confirmed
--   [ ] enclosure confirmed
+# 30. Production checklist
 
-## ZC
+- [ ] ESP32 GPIO map verified
+- [ ] GPIO34/35/36 external bias verified
+- [ ] Zero-cross isolation verified
+- [ ] Correct ZC profile selected
+- [ ] Random-phase optotriac selected
+- [ ] MOC306x avoided for phase-angle control
+- [ ] Power TRIAC voltage/current rating verified
+- [ ] Fuse installed
+- [ ] MOV selected for actual mains
+- [ ] Snubber verified
+- [ ] Creepage/clearance verified
+- [ ] Enclosure verified
+- [ ] MQTT password changed
+- [ ] Dashboard admin password changed
+- [ ] Dashboard not Internet exposed
+- [ ] One-fan test completed
+- [ ] Four-fan test completed
+- [ ] Motor safety test completed
+- [ ] WiFi loss test completed
+- [ ] MQTT loss test completed
+- [ ] Reboot test completed
+- [ ] OTA test completed
 
--   [ ] four isolated detectors
--   [ ] output voltage verified
--   [ ] GPIO34/35/36 external bias
--   [ ] polarity verified
--   [ ] half-cycle verified
--   [ ] timing offset calibrated
+---
 
-## Motor
+# 31. বর্তমান design-এর গুরুত্বপূর্ণ সীমা
 
--   [ ] driver rated
--   [ ] suppression
--   [ ] protection
--   [ ] boot behavior approved
--   [ ] dry-run protection considered
+এই README বা firmware কোনো নির্দিষ্ট mains voltage/current-এর জন্য certified electrical design নয়।
 
-------------------------------------------------------------------------
+বিশেষ করে power TRIAC, fuse, MOV, snubber, resistor network, optocoupler LED current, heatsink, PCB creepage/clearance এবং enclosure **actual hardware এবং mains-এর ভিত্তিতে আলাদাভাবে engineering/verification করতে হবে।**
 
-# 33. Final truth table
+Exact component manufacturer যেখানে firmware-এ নির্দিষ্ট নেই, সেখানে এই README কোনো brand অনুমান করছে না।
 
-  Feature                            Current source
-  ---------------------------------- ---------------------------
-  4 fan dashboard                    ✅ আছে
-  Fan ON/OFF                         ✅ আছে
-  Fan speed                          ✅ আছে
-  ZC status                          ✅ আছে
-  MQTT                               ✅ আছে
-  HA MQTT Discovery                  ✅ আছে
-  DHT/BMP/PIR/Ultrasonic/PZEM        ✅ আছে
-  Water motor automation             ✅ আছে
-  NVS                                ✅ আছে
-  WiFiManager                        ✅ আছে
-  OTA                                ✅ আছে
-  WDT                                ✅ আছে
-  Dashboard admin login              ❌ নেই
-  Admin username                     ❌ নেই
-  Admin password                     ❌ নেই
-  OTA password                       ❌ নেই
-  Default MQTT password              ⚠️ `12345678`
-  Direct HA REST/WebSocket control   ❌ নেই
-  Universal mains resistor values    ❌ নেই; hardware-specific
-  Universal TRIAC part number        ❌ নেই; load-specific
+---
 
-------------------------------------------------------------------------
+# 32. সংক্ষিপ্ত Reference Card
 
-# 34. Reference sources
+```text
+PROJECT
+JARVIS AC FAN + WATER CONTROLLER
 
-### Home Assistant MQTT
-
-https://www.home-assistant.io/integrations/mqtt/
-
-MQTT Discovery, unique ID, retained discovery এবং availability সম্পর্কে
-official documentation।
-
-### Espressif GPIO
-
-https://docs.espressif.com/projects/esp-idf/en/latest/esp32/api-reference/peripherals/gpio.html
-
-Classic ESP32 GPIO34--39 input-only; GPIO34--39 internal software
-pull-up/pull-down ছাড়া।
-
-### H11AA1
-
-https://www.vishay.com/en/product/83608/
-
-### onsemi MOC3023M
-
-https://www.onsemi.com/pdf/datasheet/moc3023m-d.pdf
-
-### PZEM
-
-Exact PZEM-004T version-এর manufacturer/manual অনুসরণ করতে হবে।
-
-------------------------------------------------------------------------
-
-# 35. Final verdict
-
-## Software
-
-**Controlled bench commissioning-এর জন্য architecture ভালো।**
-
-``` text
+MCU
 ESP32
- ↓
-isolated ZC
- ↓
-phase-angle engine
- ↓
-random-phase optotriac
- ↓
-power TRIAC
- ↓
-fan
+
+FAN TRIAC
+13 / 14 / 18 / 19
+
+FAN ZC
+23 / 34 / 35 / 36
+
+DHT22
+27
+
+PIR
+26
+
+ULTRASONIC
+TRIG 32
+ECHO 33
+
+MOTOR
+25
+
+I2C
+SDA 21
+SCL 22
+
+PZEM
+RX 16
+TX 17
+
+STATUS LED
+GPIO2
+
+DASHBOARD
+http://ESP32_IP/
+
+DEFAULT ADMIN
+admin / admin12345
+
+DEFAULT MQTT
+esp32 / 12345678
+
+MQTT AVAILABILITY
+jarvis/status/availability
+
+WIFI CONFIG AP
+Jarvis_AP
+
+OTA HOST
+jarvis-fan-system
 ```
 
-এর সঙ্গে:
+---
 
-``` text
-MQTT
-HA Discovery
-Dashboard
-Sensors
-Water automation
-NVS
-OTA
-WDT
-```
+## শেষ কথা
 
-## কিন্তু "fully production-secure" বলা যাবে না যতক্ষণ:
+এই firmware-এর মূল architecture হলো:
 
-``` text
-1. Dashboard authentication নেই
-2. OTA authentication নেই
-3. Default MQTT password বদলানো হয়নি
-4. WiFiManager custom parameter lifecycle verify হয়নি
-5. Motor/fan power-restore policy final হয়নি
-6. Exact mains hardware design verified হয়নি
-```
+**ESP32 → isolated Zero-Cross → phase-angle TRIAC → 4 fan**
 
-------------------------------------------------------------------------
+এবং একই ESP32:
 
-# 36. Golden rule
+**Sensors → MQTT → Home Assistant**
 
-**Source-এ নেই এমন feature-কে built-in বলা যাবে না।**
+এবং:
 
-**Mains-specific component value আন্দাজ করে লেখা যাবে না।**
+**Browser → authenticated Dashboard → ESP32**
 
-**ESP32 side এবং mains side-এর isolation কখনো ভাঙা যাবে না।**
+এই তিনটি layer একসাথে কাজ করে।
 
-**Final production BOM = exact datasheet + actual mains + actual
-fan/motor load + safety design।**
+**Mains side-এ কাজ করার আগে power-stage isolation এবং electrical safety verification বাধ্যতামূলক।**
