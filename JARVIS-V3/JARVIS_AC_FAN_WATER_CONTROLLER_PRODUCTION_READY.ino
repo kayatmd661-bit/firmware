@@ -190,6 +190,12 @@ uint16_t mqttPort = 1883;
 String mqttUser = "esp32";
 String mqttPass = "12345678";
 
+// Dashboard administrator credentials are deliberately separate from MQTT
+// credentials. They are stored in Preferences/NVS and can be changed from
+// the authenticated dashboard.
+String adminUser = "admin";
+String adminPass = "admin12345";
+
 String haHost = "";
 uint16_t haPort = 8123;
 String haName = "Jarvis Fan System";
@@ -809,6 +815,12 @@ void loadPreferences() {
   mqttUser = pref.getString("mqtt_user", "esp32");
   mqttPass = pref.getString("mqtt_pass", "12345678");
 
+  // Dashboard admin credential is independent of MQTT.
+  adminUser = pref.getString("adm_user", "admin");
+  adminPass = pref.getString("adm_pass", "admin12345");
+  if (adminUser.length() == 0) adminUser = "admin";
+  if (adminPass.length() < 8) adminPass = "admin12345";
+
   haHost = pref.getString("ha_host", "");
   haPort = pref.getUShort("ha_port", 8123);
   haName = pref.getString("ha_name", "Jarvis Fan System");
@@ -858,6 +870,9 @@ void savePreferences() {
   pref.putString("mqtt_user", mqttUser);
   pref.putString("mqtt_pass", mqttPass);
 
+  pref.putString("adm_user", adminUser);
+  pref.putString("adm_pass", adminPass);
+
   pref.putString("ha_host", haHost);
   pref.putUShort("ha_port", haPort);
   pref.putString("ha_name", haName);
@@ -881,6 +896,16 @@ void savePreferences() {
 }
 
 // ========================= DASHBOARD ================================
+//
+// Dashboard security:
+//   Username: admin (stored in NVS)
+//   Initial password: admin12345
+//   Password can be changed from the authenticated dashboard.
+//   MQTT credentials are NOT used for dashboard login.
+//
+// NOTE: WebServer HTTP Basic Authentication is not encrypted by itself.
+// Use it on a trusted LAN/VLAN or behind an appropriate secure gateway.
+// Do not expose the ESP32 dashboard directly to the public Internet.
 
 String htmlEscape(const String &s) {
   String r = s;
@@ -1030,6 +1055,15 @@ String buildDashboard() {
 
   h += F("<button type='submit'>SAVE CONFIGURATION</button></form></div>");
 
+  h += F("<div class='card wide'><h2>Dashboard Admin Security</h2>");
+  h += F("<p class='muted'>Dashboard login is separate from MQTT credentials. "
+         "Change the administrator password here. Minimum 8 characters.</p>");
+  h += F("<form method='POST' action='/change-password'>");
+  h += F("<label>Current Admin Password</label><input type='password' name='current_password' autocomplete='current-password' required>");
+  h += F("<label>New Admin Password</label><input type='password' name='new_password' minlength='8' autocomplete='new-password' required>");
+  h += F("<label>Confirm New Admin Password</label><input type='password' name='confirm_password' minlength='8' autocomplete='new-password' required>");
+  h += F("<button type='submit'>CHANGE ADMIN PASSWORD</button></form></div>");
+
   h += F("<div class='card wide'><p class='muted'>WiFi configuration is handled by WiFiManager. Open the WiFiManager portal when WiFi credentials need to be changed.</p></div>");
 
   h += F("</div>");
@@ -1060,17 +1094,19 @@ String buildDashboard() {
 }
 
 bool authorizeWebRequest() {
-  // Reuse the configured MQTT password as the LAN dashboard/OTA password.
-  // This adds a security barrier without introducing another credential store.
-  if (mqttPass.length() == 0) {
-    server.send(503, "text/plain", "Web authentication is disabled because MQTT password is empty");
+  // Dashboard authentication is intentionally independent from MQTT.
+  // HTTP Basic Authentication is used by WebServer; the browser will
+  // automatically send the credentials for subsequent dashboard/API requests.
+  if (adminUser.length() == 0 || adminPass.length() < 8) {
+    server.send(503, "text/plain", "Dashboard administrator credentials are not configured");
     return false;
   }
 
-  if (!server.authenticate("admin", mqttPass.c_str())) {
+  if (!server.authenticate(adminUser.c_str(), adminPass.c_str())) {
     server.requestAuthentication();
     return false;
   }
+
   return true;
 }
 
@@ -1196,11 +1232,69 @@ void handleSaveConfig() {
               "<a href='/'>Back</a></body></html>");
 }
 
+void handleChangePassword() {
+  if (!authorizeWebRequest()) return;
+
+  if (!server.hasArg("current_password") ||
+      !server.hasArg("new_password") ||
+      !server.hasArg("confirm_password")) {
+    server.send(400, "text/plain", "Missing password fields");
+    return;
+  }
+
+  String currentPassword = server.arg("current_password");
+  String newPassword = server.arg("new_password");
+  String confirmPassword = server.arg("confirm_password");
+
+  if (currentPassword != adminPass) {
+    server.send(403, "text/plain",
+                "<html><body><h2>Password change failed</h2>"
+                "<p>Current admin password is incorrect.</p>"
+                "<a href='/'>Back to dashboard</a></body></html>");
+    return;
+  }
+
+  if (newPassword.length() < 8) {
+    server.send(400, "text/plain",
+                "<html><body><h2>Password change failed</h2>"
+                "<p>New admin password must contain at least 8 characters.</p>"
+                "<a href='/'>Back to dashboard</a></body></html>");
+    return;
+  }
+
+  if (newPassword != confirmPassword) {
+    server.send(400, "text/plain",
+                "<html><body><h2>Password change failed</h2>"
+                "<p>New password and confirmation do not match.</p>"
+                "<a href='/'>Back to dashboard</a></body></html>");
+    return;
+  }
+
+  if (newPassword == adminPass) {
+    server.send(400, "text/plain",
+                "<html><body><h2>Password change failed</h2>"
+                "<p>New password must be different from the current password.</p>"
+                "<a href='/'>Back to dashboard</a></body></html>");
+    return;
+  }
+
+  adminPass = newPassword;
+  pref.putString("adm_pass", adminPass);
+
+  // Force the browser to authenticate again with the new credential.
+  server.send(401, "text/html",
+              "<html><body><h2>Admin password changed</h2>"
+              "<p>The new password has been saved. The dashboard will require "
+              "the new password on the next request.</p>"
+              "<p>Please reload the page and sign in again.</p></body></html>");
+}
+
 void setupWebServer() {
   server.on("/", HTTP_GET, handleDashboard);
   server.on("/api/status", HTTP_GET, handleStatusApi);
   server.on("/api/fan", HTTP_GET, handleFanApi);
   server.on("/save", HTTP_POST, handleSaveConfig);
+  server.on("/change-password", HTTP_POST, handleChangePassword);
 
   server.begin();
 }
@@ -1358,6 +1452,13 @@ void setup() {
 
   if (mqttPass == "12345678") {
     Serial.println("WARNING: Default MQTT password is still in use. Change it before production deployment.");
+  }
+
+  Serial.println("Dashboard authentication: HTTP Basic Auth");
+  Serial.print("Dashboard admin username: ");
+  Serial.println(adminUser);
+  if (adminPass == "admin12345") {
+    Serial.println("WARNING: Default dashboard admin password is still in use. Change it from the dashboard.");
   }
 
   dht.begin();
