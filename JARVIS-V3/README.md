@@ -59,7 +59,7 @@ http://ESP32-IP/
 │       JARVIS LOGIN           │
 │                              │
 │ Username: [ admin          ] │
-│ Password: [ 12345678 ] │
+│ Password: [ admin12345 ] │
 │                              │
 │        [ LOGIN ]             │
 └──────────────────────────────┘
