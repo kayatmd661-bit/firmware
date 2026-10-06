@@ -51,6 +51,22 @@ Firmware-এ HTTP `WebServer` port `80`-এ চালু হয়।
 
 ``` text
 http://<ESP32-IP>/
+Browser
+   ↓
+http://ESP32-IP/
+   ↓
+┌──────────────────────────────┐
+│       JARVIS LOGIN           │
+│                              │
+│ Username: [ admin          ] │
+│ Password: [ ************** ] │
+│                              │
+│        [ LOGIN ]             │
+└──────────────────────────────┘
+   ↓
+সঠিক হলে
+   ↓
+JARVIS Dashboard
 ```
 
 Dashboard-এ আছে:
