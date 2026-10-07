@@ -463,7 +463,55 @@ enclosure অনুযায়ী।
 
 ------------------------------------------------------------------------
 
-## 21. Production Wiring Block Diagram
+## 21. Manufacturer / Component Reference — ছবি সহ
+
+> **গুরুত্বপূর্ণ:** নিচের ছবিগুলো production design-এর জন্য **representative reference illustration**। বর্তমান firmware বা source code থেকে কোনো নির্দিষ্ট installed brand/model প্রমাণিত নয়। Exact model নির্বাচন করার আগে voltage, current, power, temperature, isolation, fuse rating এবং enclosure rating verify করতে হবে।
+
+### 21.1 Recommended manufacturer reference
+
+![JARVIS Smart Light recommended manufacturer reference](assets/vendor_reference.png)
+
+**Reference manufacturer/category:**
+
+- **Espressif** — ESP32-C3 controller
+- **Infineon / Vishay / STMicroelectronics** — logic-level MOSFET category
+- **Mean Well** — certified AC/DC PSU category
+- **Victron Energy / EPEVER** — solar MPPT/charger category
+- **Daly / JBD** — BMS category
+- **Littelfuse / Eaton-Bussmann** — DC fuse/protection category
+- **Phoenix Contact / WAGO** — terminal/connector category
+- **Vishay / Yageo** — precision resistor category
+- **Omron / Schneider Electric / Finder** — relay/contactor category
+- **Broadcom / Toshiba** — isolation/isolated interface category
+- **Hammond / Fibox / Schneider Electric** — enclosure category
+
+### 21.2 Component category overview
+
+![JARVIS Smart Light component categories](assets/component_categories.png)
+
+### 21.3 Complete hardware connection overview
+
+![JARVIS Smart Light hardware connection overview](assets/system_wiring_overview.png)
+
+### 21.4 Exact hardware বনাম recommended hardware
+
+| বিষয় | README-তে কী ধরা হয়েছে | Status |
+|---|---|---|
+| ESP32-C3 | ESP32-C3 based controller | **Source/design verified** |
+| MOSFET | Logic-level N-MOSFET category | **Model NOT VERIFIED** |
+| PSU | Certified AC/DC supply category | **Model NOT VERIFIED** |
+| Solar charger | MPPT/PWM category | **Model NOT VERIFIED** |
+| BMS | Passive/basic BMS compatible | **Brand/model NOT VERIFIED** |
+| Fuse | Rated DC fuse + holder | **Model NOT VERIFIED** |
+| Terminals | Rated industrial terminal/connector | **Model NOT VERIFIED** |
+| Resistors | Precision divider/calibration network | **Exact values/load NOT VERIFIED** |
+| Enclosure | Electrical-rated enclosure | **Model NOT VERIFIED** |
+
+> তাই এই ছবিগুলোকে **“কোন কোম্পানির কোন category ব্যবহার করা যেতে পারে”** হিসেবে দেখো; এগুলোকে installed BOM বা exact purchasing list হিসেবে ধরা যাবে না।
+
+---
+
+## 22. Production Wiring Block Diagram
 
 ``` mermaid
 flowchart TB
@@ -506,7 +554,7 @@ flowchart TB
 
 ------------------------------------------------------------------------
 
-## 22. Commissioning Procedure
+## 23. Commissioning Procedure
 
 ### Step 1 --- Firmware
 
@@ -551,7 +599,7 @@ charger enable hardware test করো।
 
 ------------------------------------------------------------------------
 
-## 23. Pre-Power Checklist
+## 24. Pre-Power Checklist
 
 -   [ ] GPIO-তে 12V/AC direct connection নেই
 -   [ ] Battery polarity correct
@@ -572,7 +620,7 @@ charger enable hardware test করো।
 
 ------------------------------------------------------------------------
 
-## 24. Troubleshooting
+## 25. Troubleshooting
 
 ### Wi-Fi connect হচ্ছে না
 
@@ -601,7 +649,7 @@ GPIO2/GPIO3, driver/relay, source sense এবং hardware interlock verify
 
 ------------------------------------------------------------------------
 
-## 25. Software Architecture
+## 26. Software Architecture
 
 ``` text
 PIN CONFIGURATION
@@ -638,7 +686,7 @@ Smart Light application layer-ই device-specific অংশ।
 
 ------------------------------------------------------------------------
 
-## 26. Libraries / Software Components
+## 27. Libraries / Software Components
 
   Component       কাজ
   --------------- ---------------------
@@ -663,7 +711,7 @@ Official references:
 
 ------------------------------------------------------------------------
 
-## 27. `[NOT VERIFIED]` Hardware Items
+## 28. `[NOT VERIFIED]` Hardware Items
 
 Source code থেকে নিচের বিষয়গুলো নির্দিষ্ট করা যায় না; physical hardware
 অনুযায়ী verify করতে হবে:
@@ -685,7 +733,7 @@ Source code থেকে নিচের বিষয়গুলো নির্�
 
 ------------------------------------------------------------------------
 
-## 28. Final System
+## 29. Final System
 
 ``` text
                   ┌─────────────────────┐
