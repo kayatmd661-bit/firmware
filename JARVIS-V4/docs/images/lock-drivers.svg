@@ -1,0 +1,237 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1150 780" width="100%" height="100%">
+  <defs>
+    <style>
+      .bg { fill: #0b1120; }
+      .title { fill: #f8fafc; font-family: 'Segoe UI', system-ui, sans-serif; font-size: 22px; font-weight: bold; }
+      .subtitle { fill: #94a3b8; font-family: 'Segoe UI', system-ui, sans-serif; font-size: 13px; }
+      .box-block { fill: #1e293b; stroke: #334155; stroke-width: 2; rx: 10; }
+      .box-relay { fill: #111827; stroke: #10b981; stroke-width: 2; rx: 10; }
+      .box-lock { fill: #1e293b; stroke: #64748b; stroke-width: 1.5; rx: 8; }
+      .term-block { fill: #1e293b; stroke: #475569; stroke-width: 1; rx: 4; }
+      .term-txt { fill: #f8fafc; font-family: monospace; font-size: 11px; font-weight: bold; }
+      .pin-name { fill: #38bdf8; font-family: monospace; font-size: 11.5px; font-weight: bold; }
+      .sub-txt { fill: #94a3b8; font-family: 'Segoe UI', system-ui, sans-serif; font-size: 11px; }
+      .wire-sig { stroke: #10b981; stroke-width: 2.2; fill: none; }
+      .wire-pwr12 { stroke: #ef4444; stroke-width: 2.5; fill: none; }
+      .wire-gnd { stroke: #475569; stroke-width: 2.5; fill: none; }
+      .wire-lock { stroke: #eab308; stroke-width: 2.2; fill: none; }
+      .badge-fix { fill: #064e3b; stroke: #10b981; stroke-width: 1; rx: 4; }
+      .badge-fix-txt { fill: #6ee7b7; font-family: monospace; font-size: 9.5px; font-weight: bold; }
+      .diode-sym { fill: #0f172a; stroke: #f59e0b; stroke-width: 1.5; }
+    </style>
+    <marker id="arr-green" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M 0 1 L 10 5 L 0 9 z" fill="#10b981" />
+    </marker>
+  </defs>
+
+  <rect width="1150" height="780" class="bg" />
+
+  <!-- Header -->
+  <g transform="translate(40, 40)">
+    <text x="0" y="0" class="title">4-CHANNEL DOOR &amp; GATE LOCK DRIVERS (GPIO 14, 21, 19, 17)</text>
+    <text x="0" y="22" class="subtitle">Optoisolated Relay / MOSFET Actuator Driver Circuit with Inductive Flyback Protection (1N4007)</text>
+  </g>
+
+  <!-- Left: ESP32 Controller Block -->
+  <g transform="translate(40, 95)">
+    <rect width="240" height="490" class="box-block" />
+    <rect x="0" y="0" width="240" height="42" rx="10" fill="#1e293b" stroke="#38bdf8" stroke-width="1.5"/>
+    <text x="18" y="27" fill="#38bdf8" font-family="'Segoe UI', sans-serif" font-size="14px" font-weight="bold">ESP32 OUTPUTS</text>
+
+    <g transform="translate(15, 60)">
+      <!-- Channel 1: Main Gate Lock (GPIO 14) -->
+      <rect x="0" y="0" width="210" height="52" class="term-block" />
+      <text x="10" y="22" class="pin-name">GPIO 14</text>
+      <text x="10" y="42" fill="#e2e8f0" font-family="'Segoe UI', sans-serif" font-size="11px">MAIN_GATE_LOCK</text>
+      <circle cx="195" cy="26" r="5" fill="#10b981" />
+
+      <!-- Channel 2: BD1 Lock (GPIO 21) -->
+      <rect x="0" y="70" width="210" height="52" class="term-block" />
+      <text x="10" y="92" class="pin-name">GPIO 21</text>
+      <text x="10" y="112" fill="#e2e8f0" font-family="'Segoe UI', sans-serif" font-size="11px">BD1_LOCK (Bed 1)</text>
+      <circle cx="195" cy="96" r="5" fill="#10b981" />
+
+      <!-- Channel 3: BLC Lock (GPIO 19) -->
+      <rect x="0" y="140" width="210" height="52" class="term-block" />
+      <text x="10" y="162" class="pin-name">GPIO 19</text>
+      <text x="10" y="182" fill="#e2e8f0" font-family="'Segoe UI', sans-serif" font-size="11px">BLC_LOCK (Balcony)</text>
+      <circle cx="195" cy="166" r="5" fill="#10b981" />
+
+      <!-- Channel 4: BD2 Lock (GPIO 17) -->
+      <rect x="0" y="210" width="210" height="60" class="term-block" fill="#064e3b" stroke="#10b981" stroke-width="1.5"/>
+      <text x="10" y="232" class="pin-name" fill="#6ee7b7">GPIO 17</text>
+      <rect x="110" y="215" width="85" height="18" class="badge-fix"/>
+      <text x="115" y="228" class="badge-fix-txt">FIX (OLD IO5)</text>
+      <text x="10" y="255" fill="#a7f3d0" font-family="'Segoe UI', sans-serif" font-size="11px">BD2_LOCK (Bed 2)</text>
+      <circle cx="195" cy="240" r="5" fill="#10b981" />
+
+      <!-- Logic Power & GND -->
+      <rect x="0" y="295" width="210" height="42" class="term-block" />
+      <text x="10" y="321" class="pin-name" fill="#f97316">5V / VIN</text>
+      <text x="80" y="321" fill="#cbd5e1" font-family="'Segoe UI', sans-serif" font-size="11px">Relay Coil VCC</text>
+      <circle cx="195" cy="316" r="5" fill="#f97316" />
+
+      <rect x="0" y="355" width="210" height="42" class="term-block" />
+      <text x="10" y="381" class="pin-name" fill="#94a3b8">GND</text>
+      <text x="80" y="381" fill="#cbd5e1" font-family="'Segoe UI', sans-serif" font-size="11px">Logic Ground</text>
+      <circle cx="195" cy="376" r="5" fill="#64748b" />
+    </g>
+  </g>
+
+  <!-- Center: 4-Channel Relay Board Module -->
+  <g transform="translate(340, 95)">
+    <rect width="360" height="490" class="box-relay" />
+    <rect x="0" y="0" width="360" height="42" rx="10" fill="#064e3b" stroke="#10b981" stroke-width="1.5"/>
+    <text x="20" y="27" fill="#6ee7b7" font-family="'Segoe UI', sans-serif" font-size="14px" font-weight="bold">4-CHANNEL OPTO-RELAY MODULE</text>
+
+    <!-- Inputs from ESP32 (Left Side) -->
+    <g transform="translate(15, 60)">
+      <rect x="0" y="0" width="90" height="42" class="term-block" /><text x="10" y="26" class="term-txt">IN1 (Gate)</text>
+      <rect x="0" y="70" width="90" height="42" class="term-block" /><text x="10" y="96" class="term-txt">IN2 (BD1)</text>
+      <rect x="0" y="140" width="90" height="42" class="term-block" /><text x="10" y="166" class="term-txt">IN3 (BLC)</text>
+      <rect x="0" y="210" width="90" height="42" class="term-block" /><text x="10" y="236" class="term-txt">IN4 (BD2)</text>
+      <rect x="0" y="295" width="90" height="35" class="term-block" /><text x="10" y="318" class="term-txt" fill="#f97316">VCC (5V)</text>
+      <rect x="0" y="350" width="90" height="35" class="term-block" /><text x="10" y="373" class="term-txt" fill="#94a3b8">GND</text>
+    </g>
+
+    <!-- 4 Relays Graphical Representation -->
+    <g transform="translate(120, 60)">
+      <!-- Relay 1 -->
+      <rect x="0" y="0" width="110" height="52" rx="5" fill="#1e293b" stroke="#334155" />
+      <text x="12" y="25" fill="#e2e8f0" font-family="'Segoe UI', sans-serif" font-size="11px" font-weight="bold">RELAY 1 (10A)</text>
+      <text x="12" y="42" class="sub-txt">Main Gate Solenoid</text>
+
+      <!-- Relay 2 -->
+      <rect x="0" y="70" width="110" height="52" rx="5" fill="#1e293b" stroke="#334155" />
+      <text x="12" y="95" fill="#e2e8f0" font-family="'Segoe UI', sans-serif" font-size="11px" font-weight="bold">RELAY 2 (10A)</text>
+      <text x="12" y="112" class="sub-txt">Bedroom 1 Lock</text>
+
+      <!-- Relay 3 -->
+      <rect x="0" y="140" width="110" height="52" rx="5" fill="#1e293b" stroke="#334155" />
+      <text x="12" y="165" fill="#e2e8f0" font-family="'Segoe UI', sans-serif" font-size="11px" font-weight="bold">RELAY 3 (10A)</text>
+      <text x="12" y="182" class="sub-txt">Balcony Door Lock</text>
+
+      <!-- Relay 4 -->
+      <rect x="0" y="210" width="110" height="52" rx="5" fill="#1e293b" stroke="#334155" />
+      <text x="12" y="235" fill="#e2e8f0" font-family="'Segoe UI', sans-serif" font-size="11px" font-weight="bold">RELAY 4 (10A)</text>
+      <text x="12" y="252" class="sub-txt">Bedroom 2 Lock</text>
+    </g>
+
+    <!-- Relay Screw Terminals (COM / NO / NC) on Right -->
+    <g transform="translate(245, 60)">
+      <!-- Channel 1 Terminals -->
+      <rect x="0" y="0" width="100" height="52" class="term-block" />
+      <text x="8" y="22" class="term-txt" fill="#93c5fd">NO1</text>
+      <text x="8" y="44" class="term-txt" fill="#ef4444">COM1 (+12V)</text>
+
+      <!-- Channel 2 Terminals -->
+      <rect x="0" y="70" width="100" height="52" class="term-block" />
+      <text x="8" y="92" class="term-txt" fill="#93c5fd">NO2</text>
+      <text x="8" y="114" class="term-txt" fill="#ef4444">COM2 (+12V)</text>
+
+      <!-- Channel 3 Terminals -->
+      <rect x="0" y="140" width="100" height="52" class="term-block" />
+      <text x="8" y="162" class="term-txt" fill="#93c5fd">NO3</text>
+      <text x="8" y="184" class="term-txt" fill="#ef4444">COM3 (+12V)</text>
+
+      <!-- Channel 4 Terminals -->
+      <rect x="0" y="210" width="100" height="52" class="term-block" />
+      <text x="8" y="232" class="term-txt" fill="#93c5fd">NO4</text>
+      <text x="8" y="254" class="term-txt" fill="#ef4444">COM4 (+12V)</text>
+    </g>
+
+    <!-- Opto-isolation Jumpers callout -->
+    <g transform="translate(15, 410)">
+      <rect x="0" y="0" width="330" height="65" rx="6" fill="#0f172a" stroke="#059669" stroke-width="1"/>
+      <text x="10" y="20" fill="#34d399" font-family="'Segoe UI', sans-serif" font-size="11.5px" font-weight="bold">OPTOCOUPLER ISOLATION (JD-VCC JUMPER):</text>
+      <text x="10" y="38" class="sub-txt">Remove JD-VCC jumper to separate ESP32 5V logic rail</text>
+      <text x="10" y="54" class="sub-txt">from dirty relay coil flyback spikes.</text>
+    </g>
+  </g>
+
+  <!-- Right: 4 Lock Actuators & 12V Power -->
+  <g transform="translate(760, 95)">
+    <!-- 4 Locks Box -->
+    <rect width="350" height="340" class="box-block" />
+    <rect x="0" y="0" width="350" height="42" rx="10" fill="#334155" stroke="#64748b" stroke-width="1.5"/>
+    <text x="20" y="27" fill="#f8fafc" font-family="'Segoe UI', sans-serif" font-size="14px" font-weight="bold">12V ELECTRONIC DOOR LOCKS</text>
+
+    <g transform="translate(15, 55)">
+      <!-- Lock 1 -->
+      <rect x="0" y="0" width="320" height="55" class="box-lock" />
+      <text x="12" y="24" fill="#f8fafc" font-family="'Segoe UI', sans-serif" font-size="12px" font-weight="bold">Main Gate Lock (Drop Bolt / Strike)</text>
+      <text x="12" y="44" class="sub-txt">1N4007 Diode across +/- • 12V DC 1.5A</text>
+      <circle cx="295" cy="28" r="7" fill="#10b981"/>
+
+      <!-- Lock 2 -->
+      <rect x="0" y="68" width="320" height="55" class="box-lock" />
+      <text x="12" y="92" fill="#f8fafc" font-family="'Segoe UI', sans-serif" font-size="12px" font-weight="bold">Bedroom 1 Door Lock (Solenoid)</text>
+      <text x="12" y="112" class="sub-txt">1N4007 Diode across +/- • 12V DC 1A</text>
+      <circle cx="295" cy="96" r="7" fill="#10b981"/>
+
+      <!-- Lock 3 -->
+      <rect x="0" y="136" width="320" height="55" class="box-lock" />
+      <text x="12" y="160" fill="#f8fafc" font-family="'Segoe UI', sans-serif" font-size="12px" font-weight="bold">Balcony Door Lock (Solenoid)</text>
+      <text x="12" y="180" class="sub-txt">1N4007 Diode across +/- • 12V DC 1A</text>
+      <circle cx="295" cy="164" r="7" fill="#10b981"/>
+
+      <!-- Lock 4 -->
+      <rect x="0" y="204" width="320" height="60" class="box-lock" stroke="#10b981" stroke-width="1.5"/>
+      <text x="12" y="228" fill="#6ee7b7" font-family="'Segoe UI', sans-serif" font-size="12px" font-weight="bold">Bedroom 2 Door Lock (Solenoid)</text>
+      <text x="12" y="248" class="sub-txt">Controlled via GPIO 17 • 1N4007 Diode across +/-</text>
+      <circle cx="295" cy="234" r="7" fill="#10b981"/>
+    </g>
+
+    <!-- 12V Lock Power Supply -->
+    <g transform="translate(0, 360)">
+      <rect width="350" height="130" class="box-block" stroke="#ef4444"/>
+      <rect x="0" y="0" width="350" height="35" rx="10" fill="#450a0a" stroke="#ef4444" stroke-width="1.5"/>
+      <text x="15" y="23" fill="#fca5a5" font-family="'Segoe UI', sans-serif" font-size="13px" font-weight="bold">12V LOCK POWER SUPPLY (3A - 5A)</text>
+
+      <g transform="translate(15, 48)">
+        <rect x="0" y="0" width="180" height="35" rx="4" fill="#450a0a" stroke="#ef4444" stroke-width="1"/>
+        <text x="10" y="22" fill="#fca5a5" font-family="'Segoe UI', sans-serif" font-size="11.5px" font-weight="bold">3A Inline Fuse (Locks)</text>
+
+        <rect x="200" y="0" width="120" height="35" rx="4" fill="#1e293b"/>
+        <text x="10" y="22" fill="#94a3b8" font-family="monospace" font-size="11px">GND (Lock -)</text>
+
+        <text x="0" y="65" fill="#cbd5e1" font-family="'Segoe UI', sans-serif" font-size="10.5px">Lock Negative (-) connects to 12V Power GND rail.</text>
+      </g>
+    </g>
+  </g>
+
+  <!-- WIRING TRACES -->
+  <!-- Signals from ESP to Relay Module -->
+  <path d="M 225 186 L 355 186" class="wire-sig" marker-end="url(#arr-green)" />
+  <path d="M 225 256 L 355 256" class="wire-sig" marker-end="url(#arr-green)" />
+  <path d="M 225 326 L 355 326" class="wire-sig" marker-end="url(#arr-green)" />
+  <path d="M 225 396 L 355 396" class="wire-sig" marker-end="url(#arr-green)" />
+
+  <!-- 5V to VCC & GND to GND -->
+  <path d="M 225 471 L 355 471" stroke="#f97316" stroke-width="2" fill="none" />
+  <path d="M 225 531 L 355 531" class="wire-gnd" />
+
+  <!-- NO Terminals to Lock Positive -->
+  <path d="M 685 170 L 775 170" class="wire-lock" />
+  <path d="M 685 240 L 775 240" class="wire-lock" />
+  <path d="M 685 310 L 775 310" class="wire-lock" />
+  <path d="M 685 380 L 775 380" class="wire-lock" />
+
+  <!-- 12V Rail into Relay COM Terminals -->
+  <path d="M 775 475 L 720 475 L 720 195 L 685 195" class="wire-pwr12" />
+  <path d="M 720 265 L 685 265" class="wire-pwr12" />
+  <path d="M 720 335 L 685 335" class="wire-pwr12" />
+  <path d="M 720 405 L 685 405" class="wire-pwr12" />
+
+  <!-- Verification Warning Box -->
+  <g transform="translate(40, 610)">
+    <rect width="1070" height="135" rx="8" fill="#2d1215" stroke="#ef4444" stroke-width="1.5" />
+    <g transform="translate(20, 24)">
+      <text x="0" y="0" fill="#fca5a5" font-family="'Segoe UI', sans-serif" font-size="13px" font-weight="bold">গুরুত্বপূর্ণ লক হার্ডওয়্যার ও প্রোটেকশন সতর্কবার্তা [যাচাই প্রয়োজন]:</text>
+      <text x="0" y="24" fill="#e2e8f0" font-family="'Segoe UI', sans-serif" font-size="11.5px">১. <tspan fill="#fca5a5" font-weight="bold">Flyback Diode (1N4007) বাধ্যতামূলক:</tspan> প্রতিটি লক কয়েল একটি Inductive Load। রিলে বন্ধ হওয়ার মুহূর্তে তৈরি হওয়া হাই-ভোল্টেজ ব্যাক-ইএমএফ স্পাইক রিলে কন্টাক্ট এবং ESP32 পুড়িয়ে দিতে পারে। প্রতিটি লকের পজিটিভ ও নেগেটিভ টার্মিনালে ক্যাথোড (+12V দিকে) দিয়ে 1N4007 ডায়োড প্যারালালে লাগাতে হবে।</text>
+      <text x="0" y="52" fill="#e2e8f0" font-family="'Segoe UI', sans-serif" font-size="11.5px">২. <tspan fill="#fca5a5" font-weight="bold">লক টাইপ নির্বাচন (Fail-Secure vs Fail-Safe):</tspan> সাধারণ ড্রপবোল্ট বা সোলেনয়েড লক বিদ্যুৎ দিলে খোলে (Fail-Secure); ম্যাগনেটিক লক বিদ্যুৎ দিলে আটকে থাকে (Fail-Safe)। যদি ম্যাগনেটিক লক হয়, তবে রিলের Normally Open (NO)-এর বদলে Normally Closed (NC) টার্মিনাল ব্যবহার করতে হবে।</text>
+      <text x="0" y="80" fill="#e2e8f0" font-family="'Segoe UI', sans-serif" font-size="11.5px">৩. <tspan fill="#6ee7b7" font-weight="bold">GPIO 17 নিশ্চিতকরণ:</tspan> বেডরুম ২ লকের জন্য পুরানো GPIO 5 সম্পূর্ণরূপে বিচ্ছিন্ন করে নতুন GPIO 17-এ সংযোগ করা হয়েছে। এটি বুট চলাকালীন ESP32 ফ্রিজ হওয়া চিরতরে রোধ করে।</text>
+    </g>
+  </g>
+</svg>
+

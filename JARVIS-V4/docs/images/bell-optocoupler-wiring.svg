@@ -1,0 +1,226 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1150 780" width="100%" height="100%">
+  <defs>
+    <style>
+      .bg { fill: #0b1120; }
+      .title { fill: #f8fafc; font-family: 'Segoe UI', system-ui, sans-serif; font-size: 22px; font-weight: bold; }
+      .subtitle { fill: #94a3b8; font-family: 'Segoe UI', system-ui, sans-serif; font-size: 13px; }
+      .box-block { fill: #1e293b; stroke: #334155; stroke-width: 2; rx: 10; }
+      .box-opto { fill: #1f1d2e; stroke: #c084fc; stroke-width: 2; rx: 10; }
+      .box-ha { fill: #132d46; stroke: #0284c7; stroke-width: 1.5; rx: 8; }
+      .badge-bell { fill: #581c87; stroke: #c084fc; stroke-width: 1; rx: 4; }
+      .badge-bell-txt { fill: #f3e8ff; font-family: monospace; font-size: 10px; font-weight: bold; }
+      .term-block { fill: #1e293b; stroke: #475569; stroke-width: 1; rx: 4; }
+      .term-txt { fill: #f8fafc; font-family: monospace; font-size: 11px; font-weight: bold; }
+      .pin-name { fill: #38bdf8; font-family: monospace; font-size: 11.5px; font-weight: bold; }
+      .sub-txt { fill: #94a3b8; font-family: 'Segoe UI', system-ui, sans-serif; font-size: 11px; }
+      .chip-body { fill: #0f172a; stroke: #c084fc; stroke-width: 1.5; rx: 6; }
+      .resistor-box { fill: #78350f; stroke: #f59e0b; stroke-width: 1.2; rx: 3; }
+      .resistor-txt { fill: #fef3c7; font-family: monospace; font-size: 10px; font-weight: bold; }
+      .wire-12v { stroke: #f59e0b; stroke-width: 2; fill: none; }
+      .wire-extgnd { stroke: #64748b; stroke-width: 2; fill: none; stroke-dasharray: 4 2; }
+      .wire-gpio { stroke: #c084fc; stroke-width: 2.2; fill: none; }
+      .wire-espgnd { stroke: #475569; stroke-width: 2; fill: none; }
+      .barrier { stroke: #c084fc; stroke-width: 2; stroke-dasharray: 6 4; }
+    </style>
+    <marker id="arr-purp" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M 0 1 L 10 5 L 0 9 z" fill="#c084fc" />
+    </marker>
+  </defs>
+
+  <rect width="1150" height="780" class="bg" />
+
+  <!-- Header -->
+  <g transform="translate(40, 35)">
+    <text x="0" y="0" class="title">4-CHANNEL KEYPAD CALLING-BELL OPTOCOUPLER WIRING</text>
+    <text x="0" y="22" class="subtitle">Intercom/Keypad Bell Triggers (GPIO 18, 22, 25, 32) • Active LOW with Internal Pull-up • Dual Smart Behavior</text>
+  </g>
+
+  <!-- Left: Outdoor Keypads / Calling Bell Buttons (12V) -->
+  <g transform="translate(40, 85)">
+    <rect width="260" height="520" class="box-block" stroke="#f59e0b" />
+    <rect x="0" y="0" width="260" height="42" rx="10" fill="#451a03" stroke="#f59e0b" stroke-width="1.5"/>
+    <text x="15" y="27" fill="#fde68a" font-family="'Segoe UI', sans-serif" font-size="13px" font-weight="bold">KEYPAD CALLING BELLS (12V)</text>
+
+    <g transform="translate(15, 60)">
+      <!-- Channel 1: Main Gate Bell -->
+      <rect x="0" y="0" width="230" height="65" class="term-block" />
+      <text x="10" y="22" fill="#fef3c7" font-family="'Segoe UI', sans-serif" font-size="12px" font-weight="bold">Main Gate Keypad Bell</text>
+      <text x="10" y="40" class="sub-txt">Bell Switch (12V loop to Opto)</text>
+      <text x="10" y="55" class="sub-txt">Outdoor Station 12V GND</text>
+      <circle cx="215" cy="20" r="5" fill="#f59e0b" />
+      <circle cx="215" cy="45" r="5" fill="#64748b" />
+
+      <!-- Channel 2: BD1 Bell -->
+      <rect x="0" y="80" width="230" height="65" class="term-block" />
+      <text x="10" y="102" fill="#fef3c7" font-family="'Segoe UI', sans-serif" font-size="12px" font-weight="bold">Bedroom 1 Doorbell Switch</text>
+      <text x="10" y="120" class="sub-txt">12V Intercom Bell Contact</text>
+      <text x="10" y="135" class="sub-txt">Outdoor Station 12V GND</text>
+      <circle cx="215" cy="100" r="5" fill="#f59e0b" />
+      <circle cx="215" cy="125" r="5" fill="#64748b" />
+
+      <!-- Channel 3: BLC Bell -->
+      <rect x="0" y="160" width="230" height="65" class="term-block" />
+      <text x="10" y="182" fill="#fef3c7" font-family="'Segoe UI', sans-serif" font-size="12px" font-weight="bold">Balcony Call Button</text>
+      <text x="10" y="200" class="sub-txt">12V Intercom Bell Contact</text>
+      <text x="10" y="215" class="sub-txt">Outdoor Station 12V GND</text>
+      <circle cx="215" cy="180" r="5" fill="#f59e0b" />
+      <circle cx="215" cy="205" r="5" fill="#64748b" />
+
+      <!-- Channel 4: BD2 Bell -->
+      <rect x="0" y="240" width="230" height="65" class="term-block" />
+      <text x="10" y="262" fill="#fef3c7" font-family="'Segoe UI', sans-serif" font-size="12px" font-weight="bold">Bedroom 2 Doorbell Switch</text>
+      <text x="10" y="280" class="sub-txt">12V Intercom Bell Contact</text>
+      <text x="10" y="295" class="sub-txt">Outdoor Station 12V GND</text>
+      <circle cx="215" cy="260" r="5" fill="#f59e0b" />
+      <circle cx="215" cy="285" r="5" fill="#64748b" />
+
+      <!-- Current limiting note -->
+      <rect x="0" y="325" width="230" height="110" rx="6" fill="#0f172a" stroke="#d97706" stroke-width="1"/>
+      <text x="10" y="22" fill="#fcd34d" font-family="'Segoe UI', sans-serif" font-size="11px" font-weight="bold">BELL CURRENT LIMITING:</text>
+      <text x="10" y="44" class="sub-txt">• 1kΩ Resistor in series on Anode</text>
+      <text x="10" y="64" class="sub-txt">• Safe opto forward current: ~10mA</text>
+      <text x="10" y="84" class="sub-txt">• Galvanic isolation protects ESP32</text>
+      <text x="10" y="100" class="sub-txt">• [যাচাই প্রয়োজন: কিপ্যাড ভোল্টেজ]</text>
+    </g>
+  </g>
+
+  <!-- Galvanic Barrier -->
+  <line x1="325" y1="85" x2="325" y2="605" class="barrier" />
+  <text x="330" y="105" fill="#c084fc" font-family="'Segoe UI', sans-serif" font-size="10px" font-weight="bold" transform="rotate(90, 330, 105)">GALVANIC ISOLATION BARRIER</text>
+
+  <!-- Center: 4x PC817 Optocouplers (Active LOW Configuration) -->
+  <g transform="translate(355, 85)">
+    <rect width="440" height="520" class="box-opto" />
+    <rect x="0" y="0" width="440" height="42" rx="10" fill="#3b0764" stroke="#c084fc" stroke-width="1.5"/>
+    <text x="15" y="27" fill="#f3e8ff" font-family="'Segoe UI', sans-serif" font-size="14px" font-weight="bold">PC817 OPTOCOUPLERS (ACTIVE LOW SINK)</text>
+
+    <!-- 4 Optocoupler Blocks -->
+    <g transform="translate(15, 55)">
+      <!-- Opto 1: MAIN_BELL_OPTO_IN (IO18) -->
+      <g transform="translate(0, 0)">
+        <rect x="0" y="0" width="410" height="95" rx="6" fill="#0f172a" stroke="#475569"/>
+        <rect x="130" y="10" width="85" height="75" class="chip-body" />
+        <text x="145" y="52" fill="#c084fc" font-family="monospace" font-size="11px" font-weight="bold">PC817</text>
+        <text x="100" y="32" class="sub-txt">1 (A)</text><text x="100" y="70" class="sub-txt">2 (K)</text>
+        <rect x="15" y="20" width="70" height="22" class="resistor-box" /><text x="24" y="35" class="resistor-txt">1kΩ 1/4W</text>
+        <circle cx="10" cy="31" r="4.5" fill="#f59e0b" /><circle cx="10" cy="67" r="4.5" fill="#64748b" />
+        <text x="220" y="32" class="sub-txt">4 (C)</text><text x="220" y="70" class="sub-txt">3 (E)</text>
+        <!-- Collector connects to GPIO (pulls LOW when active) -->
+        <circle cx="400" cy="32" r="5" fill="#c084fc" />
+        <text x="270" y="32" fill="#c084fc" font-family="monospace" font-size="11px" font-weight="bold">-> GPIO 18</text>
+        <!-- Emitter connects to ESP32 GND -->
+        <text x="270" y="70" fill="#94a3b8" font-family="monospace" font-size="11px">-> ESP GND (Pin 3)</text>
+      </g>
+
+      <!-- Opto 2: BD1_BELL_OPTO_IN (IO22) -->
+      <g transform="translate(0, 105)">
+        <rect x="0" y="0" width="410" height="95" rx="6" fill="#0f172a" stroke="#475569"/>
+        <rect x="130" y="10" width="85" height="75" class="chip-body" />
+        <text x="145" y="52" fill="#c084fc" font-family="monospace" font-size="11px" font-weight="bold">PC817</text>
+        <text x="100" y="32" class="sub-txt">1 (A)</text><text x="100" y="70" class="sub-txt">2 (K)</text>
+        <rect x="15" y="20" width="70" height="22" class="resistor-box" /><text x="24" y="35" class="resistor-txt">1kΩ 1/4W</text>
+        <circle cx="10" cy="31" r="4.5" fill="#f59e0b" /><circle cx="10" cy="67" r="4.5" fill="#64748b" />
+        <text x="220" y="32" class="sub-txt">4 (C)</text><text x="220" y="70" class="sub-txt">3 (E)</text>
+        <circle cx="400" cy="32" r="5" fill="#c084fc" />
+        <text x="270" y="32" fill="#c084fc" font-family="monospace" font-size="11px" font-weight="bold">-> GPIO 22</text>
+        <text x="270" y="70" fill="#94a3b8" font-family="monospace" font-size="11px">-> ESP GND</text>
+      </g>
+
+      <!-- Opto 3: BLC_BELL_OPTO_IN (IO25) -->
+      <g transform="translate(0, 210)">
+        <rect x="0" y="0" width="410" height="95" rx="6" fill="#0f172a" stroke="#475569"/>
+        <rect x="130" y="10" width="85" height="75" class="chip-body" />
+        <text x="145" y="52" fill="#c084fc" font-family="monospace" font-size="11px" font-weight="bold">PC817</text>
+        <text x="100" y="32" class="sub-txt">1 (A)</text><text x="100" y="70" class="sub-txt">2 (K)</text>
+        <rect x="15" y="20" width="70" height="22" class="resistor-box" /><text x="24" y="35" class="resistor-txt">1kΩ 1/4W</text>
+        <circle cx="10" cy="31" r="4.5" fill="#f59e0b" /><circle cx="10" cy="67" r="4.5" fill="#64748b" />
+        <text x="220" y="32" class="sub-txt">4 (C)</text><text x="220" y="70" class="sub-txt">3 (E)</text>
+        <circle cx="400" cy="32" r="5" fill="#c084fc" />
+        <text x="270" y="32" fill="#c084fc" font-family="monospace" font-size="11px" font-weight="bold">-> GPIO 25</text>
+        <text x="270" y="70" fill="#94a3b8" font-family="monospace" font-size="11px">-> ESP GND</text>
+      </g>
+
+      <!-- Opto 4: BD2_BELL_OPTO_IN (IO32) -->
+      <g transform="translate(0, 315)">
+        <rect x="0" y="0" width="410" height="95" rx="6" fill="#0f172a" stroke="#475569"/>
+        <rect x="130" y="10" width="85" height="75" class="chip-body" />
+        <text x="145" y="52" fill="#c084fc" font-family="monospace" font-size="11px" font-weight="bold">PC817</text>
+        <text x="100" y="32" class="sub-txt">1 (A)</text><text x="100" y="70" class="sub-txt">2 (K)</text>
+        <rect x="15" y="20" width="70" height="22" class="resistor-box" /><text x="24" y="35" class="resistor-txt">1kΩ 1/4W</text>
+        <circle cx="10" cy="31" r="4.5" fill="#f59e0b" /><circle cx="10" cy="67" r="4.5" fill="#64748b" />
+        <text x="220" y="32" class="sub-txt">4 (C)</text><text x="220" y="70" class="sub-txt">3 (E)</text>
+        <circle cx="400" cy="32" r="5" fill="#c084fc" />
+        <text x="270" y="32" fill="#c084fc" font-family="monospace" font-size="11px" font-weight="bold">-> GPIO 32</text>
+        <text x="270" y="70" fill="#94a3b8" font-family="monospace" font-size="11px">-> ESP GND</text>
+      </g>
+    </g>
+  </g>
+
+  <!-- Right: ESP32 Controller Pins & Dual Firmware Behavior -->
+  <g transform="translate(820, 85)">
+    <rect width="290" height="520" class="box-block" />
+    <rect x="0" y="0" width="290" height="42" rx="10" fill="#1e293b" stroke="#38bdf8" stroke-width="1.5"/>
+    <text x="15" y="27" fill="#38bdf8" font-family="'Segoe UI', sans-serif" font-size="13px" font-weight="bold">ESP32 BELL INPUT PINS</text>
+
+    <g transform="translate(15, 60)">
+      <!-- GPIO 18 -->
+      <rect x="0" y="0" width="260" height="65" class="term-block" />
+      <text x="10" y="22" class="pin-name">GPIO 18 (MAIN_BELL_OPTO_IN)</text>
+      <text x="10" y="42" class="sub-txt">pinMode(18, INPUT_PULLUP)</text>
+      <text x="10" y="56" fill="#34d399" font-family="'Segoe UI', sans-serif" font-size="10.5px">Idle: HIGH (3.3V) • Active: LOW (GND)</text>
+
+      <!-- GPIO 22 -->
+      <rect x="0" y="75" width="260" height="65" class="term-block" />
+      <text x="10" y="97" class="pin-name">GPIO 22 (BD1_BELL_OPTO_IN)</text>
+      <text x="10" y="117" class="sub-txt">pinMode(22, INPUT_PULLUP)</text>
+      <text x="10" y="131" fill="#34d399" font-family="'Segoe UI', sans-serif" font-size="10.5px">Idle: HIGH (3.3V) • Active: LOW (GND)</text>
+
+      <!-- GPIO 25 -->
+      <rect x="0" y="150" width="260" height="65" class="term-block" />
+      <text x="10" y="172" class="pin-name">GPIO 25 (BLC_BELL_OPTO_IN)</text>
+      <text x="10" y="192" class="sub-txt">pinMode(25, INPUT_PULLUP)</text>
+      <text x="10" y="206" fill="#34d399" font-family="'Segoe UI', sans-serif" font-size="10.5px">Idle: HIGH (3.3V) • Active: LOW (GND)</text>
+
+      <!-- GPIO 32 -->
+      <rect x="0" y="225" width="260" height="65" class="term-block" />
+      <text x="10" y="247" class="pin-name">GPIO 32 (BD2_BELL_OPTO_IN)</text>
+      <text x="10" y="267" class="sub-txt">pinMode(32, INPUT_PULLUP)</text>
+      <text x="10" y="281" fill="#34d399" font-family="'Segoe UI', sans-serif" font-size="10.5px">Idle: HIGH (3.3V) • Active: LOW (GND)</text>
+
+      <!-- Dual Behavior Logic Block -->
+      <rect x="0" y="300" width="260" height="145" rx="6" fill="#0f172a" stroke="#0284c7" stroke-width="1"/>
+      <text x="10" y="22" fill="#38bdf8" font-family="'Segoe UI', sans-serif" font-size="11.5px" font-weight="bold">DUAL LOGIC IN FIRMWARE:</text>
+      
+      <text x="10" y="44" fill="#fde68a" font-family="'Segoe UI', sans-serif" font-size="11px" font-weight="bold">১. যদি দরজা UNLOCKED থাকে:</text>
+      <text x="10" y="60" class="sub-txt">বেল চাপলে সাথে সাথে লোকালি 'LOCK' হবে</text>
+      <text x="10" y="74" class="sub-txt">(Single press lock action without network)</text>
+
+      <text x="10" y="96" fill="#fde68a" font-family="'Segoe UI', sans-serif" font-size="11px" font-weight="bold">২. যদি দরজা LOCKED থাকে:</text>
+      <text x="10" y="112" class="sub-txt">Home Assistant-এ MQTT ইভেন্ট পাঠাবে:</text>
+      <text x="10" y="128" fill="#38bdf8" font-family="monospace" font-size="10px">jarvis_v4/doorbell/&lt;uid&gt; = PRESS</text>
+    </g>
+  </g>
+
+  <!-- WIRING TRACES -->
+  <path d="M 255 105 L 370 105" class="wire-12v" />
+  <path d="M 255 185 L 370 185" class="wire-12v" />
+  <path d="M 255 265 L 370 265" class="wire-12v" />
+  <path d="M 255 345 L 370 345" class="wire-12v" />
+
+  <path d="M 770 87 L 835 87" class="wire-gpio" marker-end="url(#arr-purp)" />
+  <path d="M 770 192 L 835 192" class="wire-gpio" marker-end="url(#arr-purp)" />
+  <path d="M 770 297 L 835 297" class="wire-gpio" marker-end="url(#arr-purp)" />
+  <path d="M 770 402 L 835 402" class="wire-gpio" marker-end="url(#arr-purp)" />
+
+  <!-- Bottom Timing and Debounce Notice Box -->
+  <g transform="translate(40, 625)">
+    <rect width="1070" height="120" rx="8" fill="#1e1e24" stroke="#a855f7" stroke-width="1.5" />
+    <g transform="translate(20, 24)">
+      <text x="0" y="0" fill="#e9d5ff" font-family="'Segoe UI', sans-serif" font-size="13px" font-weight="bold">টাইমিং ও অ্যান্টি-বাউন্স প্রোটেকশন (Firmware Guard Parameters):</text>
+      <text x="0" y="24" fill="#e2e8f0" font-family="'Segoe UI', sans-serif" font-size="11.5px">১. <tspan fill="#c084fc" font-weight="bold">BELL_INPUT_DEBOUNCE_MS = 40ms:</tspan> অপ্টোকপলার থেকে সিগন্যাল পাওয়ার পর ৪০ মিলি-সেকেন্ড পর্যন্ত সিগন্যাল স্থিতিশীল আছে কিনা পরীক্ষা করা হয়, যাতে সুইচের বাউন্সিং নয়েজ বা রিলিজ ট্রানজিয়েন্টে ভুয়া বেল না বাজে।</text>
+      <text x="0" y="48" fill="#e2e8f0" font-family="'Segoe UI', sans-serif" font-size="11.5px">২. <tspan fill="#c084fc" font-weight="bold">BELL_ACTION_GUARD_MS = 1200ms:</tspan> কেউ যদি বারবার কিপ্যাডের কল বাটন চাপতে থাকে (Spam clicks), তবে ১.২ সেকেন্ডে কেবল ১টি ইভেন্ট প্রক্রিয়া করা হবে। এটি সার্ভার ফ্লাডিং ও অপ্রয়োজনীয় রিলে চ্যাটারিং রোধ করে।</text>
+      <text x="0" y="72" fill="#e2e8f0" font-family="'Segoe UI', sans-serif" font-size="11.5px">৩. <tspan fill="#fca5a5" font-weight="bold">[যাচাই প্রয়োজন]:</tspan> আপনার আউটডোর ইন্টারকম বা কিপ্যাডের বেল আউটপুট ড্রাই-কন্টাক্ট (Relay contact) নাকি ১২V ভোল্টেজ আউটপুট—তা মাল্টিমিটার দিয়ে পরীক্ষা করে রেজিস্টরের মান সমন্বয় করুন।</text>
+    </g>
+  </g>
+</svg>
+

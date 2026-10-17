@@ -1,0 +1,404 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 900" width="100%" height="100%">
+  <defs>
+    <style>
+      .bg { fill: #0b1120; }
+      .title { fill: #f8fafc; font-family: 'Segoe UI', system-ui, sans-serif; font-size: 24px; font-weight: bold; }
+      .subtitle { fill: #94a3b8; font-family: 'Segoe UI', system-ui, sans-serif; font-size: 13px; }
+      .board-body { fill: #1e293b; stroke: #334155; stroke-width: 2.5; rx: 16; }
+      .metal-shield { fill: #334155; stroke: #64748b; stroke-width: 1.5; rx: 6; }
+      .antenna { fill: #0f172a; stroke: #c2410c; stroke-width: 2; rx: 4; }
+      .usb-port { fill: #64748b; stroke: #94a3b8; stroke-width: 1.5; rx: 3; }
+      .btn { fill: #1e1e24; stroke: #475569; stroke-width: 1; rx: 3; }
+      .pin-pad { fill: #eab308; stroke: #ca8a04; stroke-width: 1; }
+      .pin-lbl { fill: #cbd5e1; font-family: monospace; font-size: 11px; font-weight: bold; }
+      .pin-desc { font-family: 'Segoe UI', system-ui, sans-serif; font-size: 11.5px; }
+      .pin-sub { font-family: 'Segoe UI', system-ui, sans-serif; font-size: 10px; fill: #94a3b8; }
+      .tag-out { fill: #064e3b; stroke: #10b981; stroke-width: 1; rx: 4; }
+      .tag-out-txt { fill: #6ee7b7; font-family: monospace; font-size: 9.5px; font-weight: bold; }
+      .tag-in { fill: #451a03; stroke: #f59e0b; stroke-width: 1; rx: 4; }
+      .tag-in-txt { fill: #fcd34d; font-family: monospace; font-size: 9.5px; font-weight: bold; }
+      .tag-opto { fill: #3b0764; stroke: #a855f7; stroke-width: 1; rx: 4; }
+      .tag-opto-txt { fill: #d8b4fe; font-family: monospace; font-size: 9.5px; font-weight: bold; }
+      .tag-gpi { fill: #7f1d1d; stroke: #ef4444; stroke-width: 1; rx: 4; }
+      .tag-gpi-txt { fill: #fca5a5; font-family: monospace; font-size: 9.5px; font-weight: bold; }
+      .tag-pwr { fill: #1e1b4b; stroke: #6366f1; stroke-width: 1; rx: 4; }
+      .tag-pwr-txt { fill: #a5b4fc; font-family: monospace; font-size: 9.5px; font-weight: bold; }
+      .wire-left { stroke: #475569; stroke-width: 1.2; stroke-dasharray: 2 2; }
+      .wire-right { stroke: #475569; stroke-width: 1.2; stroke-dasharray: 2 2; }
+      .wire-active { stroke: #38bdf8; stroke-width: 1.5; }
+    </style>
+  </defs>
+
+  <rect width="1200" height="900" class="bg" />
+
+  <!-- Title Header -->
+  <g transform="translate(50, 40)">
+    <text x="0" y="0" class="title">ESP32 PINOUT &amp; GPIO HARDWARE MAPPING</text>
+    <text x="0" y="22" class="subtitle">JARVIS V4 Pin Allocation • ESP32-WROOM-32 (30/38-Pin Standard DevKit Layout)</text>
+  </g>
+
+  <!-- ESP32 Board Graphic Illustration in Center (x: 480 to 720) -->
+  <g transform="translate(480, 85)">
+    <!-- Board Body -->
+    <rect x="0" y="0" width="240" height="770" class="board-body" />
+
+    <!-- PCB Antenna -->
+    <rect x="40" y="15" width="160" height="60" class="antenna" />
+    <path d="M 60 70 L 60 30 L 80 30 L 80 65 L 100 65 L 100 30 L 120 30 L 120 65 L 140 65 L 140 30 L 160 30 L 160 65 L 180 65 L 180 70" stroke="#f59e0b" stroke-width="2.5" fill="none"/>
+    <text x="90" y="50" fill="#78350f" font-family="'Segoe UI', sans-serif" font-size="10px" font-weight="bold">2.4 GHz PCB</text>
+
+    <!-- Metal RF Shield -->
+    <rect x="30" y="90" width="180" height="150" class="metal-shield" />
+    <text x="75" y="155" fill="#94a3b8" font-family="'Segoe UI', sans-serif" font-size="14px" font-weight="bold">ESP-WROOM-32</text>
+    <text x="82" y="175" fill="#64748b" font-family="'Segoe UI', sans-serif" font-size="11px">CE • FCC • RoHS</text>
+
+    <!-- Onboard LED (GPIO 2) -->
+    <rect x="50" y="260" width="16" height="12" rx="2" fill="#1e293b" stroke="#38bdf8" />
+    <circle cx="58" cy="266" r="3.5" fill="#38bdf8" />
+    <text x="74" y="270" fill="#38bdf8" font-family="'Segoe UI', sans-serif" font-size="9px">Wi-Fi LED (IO2)</text>
+
+    <!-- EN Button -->
+    <rect x="35" y="690" width="30" height="20" class="btn" />
+    <circle cx="50" cy="700" r="4.5" fill="#94a3b8" />
+    <text x="38" y="725" fill="#94a3b8" font-family="'Segoe UI', sans-serif" font-size="10px">EN</text>
+
+    <!-- BOOT Button (GPIO 0) -->
+    <rect x="175" y="690" width="30" height="20" class="btn" />
+    <circle cx="190" cy="700" r="4.5" fill="#ef4444" />
+    <text x="175" y="725" fill="#fca5a5" font-family="'Segoe UI', sans-serif" font-size="10px">BOOT(0)</text>
+
+    <!-- Micro-USB / Type-C -->
+    <rect x="85" y="740" width="70" height="28" class="usb-port" />
+    <rect x="98" y="748" width="44" height="14" rx="2" fill="#1e293b" />
+
+    <!-- Pin Headers on Left & Right (15 pins per side) -->
+    <!-- LEFT SIDE PINS (y from 120 to 680, step ~40) -->
+    <!-- Pins: 3V3, EN, 36(VP), 39(VN), 34, 35, 32, 33, 25, 26, 27, 14, 12, GND, 13 -->
+    <g transform="translate(10, 110)">
+      <!-- Left Pins (0 to 14) -->
+      <!-- 0: 3V3 -->
+      <circle cx="5" cy="15" r="4.5" class="pin-pad" /><text x="16" y="19" class="pin-lbl">3V3</text>
+      <!-- 1: EN -->
+      <circle cx="5" cy="52" r="4.5" class="pin-pad" /><text x="16" y="56" class="pin-lbl">EN</text>
+      <!-- 2: GPIO 36 (VP) -->
+      <circle cx="5" cy="89" r="4.5" class="pin-pad" /><text x="16" y="93" class="pin-lbl">IO36</text>
+      <!-- 3: GPIO 39 (VN) -->
+      <circle cx="5" cy="126" r="4.5" class="pin-pad" /><text x="16" y="130" class="pin-lbl">IO39</text>
+      <!-- 4: GPIO 34 -->
+      <circle cx="5" cy="163" r="4.5" class="pin-pad" /><text x="16" y="167" class="pin-lbl">IO34</text>
+      <!-- 5: GPIO 35 -->
+      <circle cx="5" cy="200" r="4.5" class="pin-pad" /><text x="16" y="204" class="pin-lbl">IO35</text>
+      <!-- 6: GPIO 32 -->
+      <circle cx="5" cy="237" r="4.5" class="pin-pad" /><text x="16" y="241" class="pin-lbl">IO32</text>
+      <!-- 7: GPIO 33 -->
+      <circle cx="5" cy="274" r="4.5" class="pin-pad" /><text x="16" y="278" class="pin-lbl">IO33</text>
+      <!-- 8: GPIO 25 -->
+      <circle cx="5" cy="311" r="4.5" class="pin-pad" /><text x="16" y="315" class="pin-lbl">IO25</text>
+      <!-- 9: GPIO 26 -->
+      <circle cx="5" cy="348" r="4.5" class="pin-pad" /><text x="16" y="352" class="pin-lbl">IO26</text>
+      <!-- 10: GPIO 27 -->
+      <circle cx="5" cy="385" r="4.5" class="pin-pad" /><text x="16" y="389" class="pin-lbl">IO27</text>
+      <!-- 11: GPIO 14 -->
+      <circle cx="5" cy="422" r="4.5" class="pin-pad" /><text x="16" y="426" class="pin-lbl">IO14</text>
+      <!-- 12: GPIO 12 -->
+      <circle cx="5" cy="459" r="4.5" class="pin-pad" /><text x="16" y="463" class="pin-lbl">IO12</text>
+      <!-- 13: GND -->
+      <circle cx="5" cy="496" r="4.5" class="pin-pad" /><text x="16" y="500" class="pin-lbl">GND</text>
+      <!-- 14: GPIO 13 -->
+      <circle cx="5" cy="533" r="4.5" class="pin-pad" /><text x="16" y="537" class="pin-lbl">IO13</text>
+    </g>
+
+    <!-- RIGHT SIDE PINS -->
+    <!-- Pins: VIN, GND, 23, 22, 1, 3, 21, 19, 18, 5(NC), 17(BD2), 16, 4, 0, 2 -->
+    <g transform="translate(225, 110)">
+      <!-- 0: VIN (5V) -->
+      <circle cx="5" cy="15" r="4.5" class="pin-pad" /><text x="-32" y="19" class="pin-lbl">VIN</text>
+      <!-- 1: GND -->
+      <circle cx="5" cy="52" r="4.5" class="pin-pad" /><text x="-35" y="56" class="pin-lbl">GND</text>
+      <!-- 2: GPIO 23 -->
+      <circle cx="5" cy="89" r="4.5" class="pin-pad" /><text x="-38" y="93" class="pin-lbl">IO23</text>
+      <!-- 3: GPIO 22 -->
+      <circle cx="5" cy="126" r="4.5" class="pin-pad" /><text x="-38" y="130" class="pin-lbl">IO22</text>
+      <!-- 4: GPIO 1 (TX) -->
+      <circle cx="5" cy="163" r="4.5" class="pin-pad" /><text x="-25" y="167" class="pin-lbl">TX</text>
+      <!-- 5: GPIO 3 (RX) -->
+      <circle cx="5" cy="200" r="4.5" class="pin-pad" /><text x="-25" y="204" class="pin-lbl">RX</text>
+      <!-- 6: GPIO 21 -->
+      <circle cx="5" cy="237" r="4.5" class="pin-pad" /><text x="-38" y="241" class="pin-lbl">IO21</text>
+      <!-- 7: GPIO 19 -->
+      <circle cx="5" cy="274" r="4.5" class="pin-pad" /><text x="-38" y="278" class="pin-lbl">IO19</text>
+      <!-- 8: GPIO 18 -->
+      <circle cx="5" cy="311" r="4.5" class="pin-pad" /><text x="-38" y="315" class="pin-lbl">IO18</text>
+      <!-- 9: GPIO 5 (REMOVED) -->
+      <circle cx="5" cy="348" r="4.5" fill="#475569" stroke="#64748b" /><text x="-32" y="352" class="pin-lbl" fill="#64748b">IO5</text>
+      <!-- 10: GPIO 17 (NEW BD2 LOCK) -->
+      <circle cx="5" cy="385" r="4.5" class="pin-pad" /><text x="-38" y="389" class="pin-lbl">IO17</text>
+      <!-- 11: GPIO 16 -->
+      <circle cx="5" cy="422" r="4.5" class="pin-pad" /><text x="-38" y="426" class="pin-lbl">IO16</text>
+      <!-- 12: GPIO 4 -->
+      <circle cx="5" cy="459" r="4.5" class="pin-pad" /><text x="-32" y="463" class="pin-lbl">IO4</text>
+      <!-- 13: GPIO 0 -->
+      <circle cx="5" cy="496" r="4.5" class="pin-pad" /><text x="-32" y="500" class="pin-lbl">IO0</text>
+      <!-- 14: GPIO 2 -->
+      <circle cx="5" cy="533" r="4.5" class="pin-pad" /><text x="-32" y="537" class="pin-lbl">IO2</text>
+    </g>
+  </g>
+
+  <!-- LEFT LABELS & CALLOUTS (x: 40 to 450) -->
+  <g transform="translate(40, 110)">
+    <!-- 3V3 Rail -->
+    <g transform="translate(0, 10)">
+      <rect x="0" y="0" width="420" height="30" rx="5" fill="#131d2e"/>
+      <rect x="6" y="5" width="45" height="20" class="tag-pwr"/><text x="14" y="19" class="tag-pwr-txt">3.3V</text>
+      <text x="60" y="19" class="pin-desc" fill="#e2e8f0"><tspan font-weight="bold">3.3V Logic Power Output</tspan> (To Optocoupler Collector)</text>
+      <line x1="420" y1="15" x2="455" y2="15" class="wire-active"/>
+    </g>
+
+    <!-- EN (Reset) -->
+    <g transform="translate(0, 47)">
+      <rect x="0" y="0" width="420" height="30" rx="5" fill="#0f172a"/>
+      <text x="60" y="19" class="pin-desc" fill="#94a3b8">Chip Enable / System Hardware Reset (Pull to GND to reset)</text>
+    </g>
+
+    <!-- IO36: BLC Status Opto (GPI - No Pullup) -->
+    <g transform="translate(0, 84)">
+      <rect x="0" y="0" width="420" height="32" rx="5" fill="#1f1418" stroke="#ef4444" stroke-width="1"/>
+      <rect x="6" y="6" width="68" height="20" class="tag-gpi"/><text x="10" y="20" class="tag-gpi-txt">GPI ONLY</text>
+      <text x="82" y="20" class="pin-desc" fill="#fca5a5"><tspan font-weight="bold">BLC_OPTO_IN</tspan> • 10kΩ Pull-down to GND REQ</text>
+      <line x1="420" y1="16" x2="455" y2="16" stroke="#ef4444" stroke-width="1.8"/>
+    </g>
+
+    <!-- IO39: BD2 Status Opto (GPI - No Pullup) -->
+    <g transform="translate(0, 121)">
+      <rect x="0" y="0" width="420" height="32" rx="5" fill="#1f1418" stroke="#ef4444" stroke-width="1"/>
+      <rect x="6" y="6" width="68" height="20" class="tag-gpi"/><text x="10" y="20" class="tag-gpi-txt">GPI ONLY</text>
+      <text x="82" y="20" class="pin-desc" fill="#fca5a5"><tspan font-weight="bold">BD2_OPTO_IN</tspan> • 10kΩ Pull-down to GND REQ</text>
+      <line x1="420" y1="16" x2="455" y2="16" stroke="#ef4444" stroke-width="1.8"/>
+    </g>
+
+    <!-- IO34: Main Lock Status Opto (GPI) -->
+    <g transform="translate(0, 158)">
+      <rect x="0" y="0" width="420" height="32" rx="5" fill="#1f1418" stroke="#ef4444" stroke-width="1"/>
+      <rect x="6" y="6" width="68" height="20" class="tag-gpi"/><text x="10" y="20" class="tag-gpi-txt">GPI ONLY</text>
+      <text x="82" y="20" class="pin-desc" fill="#fca5a5"><tspan font-weight="bold">MAIN_OPTO_IN</tspan> • 10kΩ Pull-down to GND REQ</text>
+      <line x1="420" y1="16" x2="455" y2="16" stroke="#ef4444" stroke-width="1.8"/>
+    </g>
+
+    <!-- IO35: BD1 Lock Status Opto (GPI) -->
+    <g transform="translate(0, 195)">
+      <rect x="0" y="0" width="420" height="32" rx="5" fill="#1f1418" stroke="#ef4444" stroke-width="1"/>
+      <rect x="6" y="6" width="68" height="20" class="tag-gpi"/><text x="10" y="20" class="tag-gpi-txt">GPI ONLY</text>
+      <text x="82" y="20" class="pin-desc" fill="#fca5a5"><tspan font-weight="bold">BD1_OPTO_IN</tspan> • 10kΩ Pull-down to GND REQ</text>
+      <line x1="420" y1="16" x2="455" y2="16" stroke="#ef4444" stroke-width="1.8"/>
+    </g>
+
+    <!-- IO32: BD2 Bell Opto -->
+    <g transform="translate(0, 232)">
+      <rect x="0" y="0" width="420" height="30" rx="5" fill="#1e1b2e"/>
+      <rect x="6" y="5" width="55" height="20" class="tag-opto"/><text x="12" y="19" class="tag-opto-txt">OPTO IN</text>
+      <text x="68" y="19" class="pin-desc" fill="#d8b4fe"><tspan font-weight="bold">BD2_BELL_OPTO_IN</tspan> (Active LOW, PULLUP)</text>
+      <line x1="420" y1="15" x2="455" y2="15" stroke="#c084fc" stroke-width="1.5"/>
+    </g>
+
+    <!-- IO33: Main Gate Button -->
+    <g transform="translate(0, 269)">
+      <rect x="0" y="0" width="420" height="30" rx="5" fill="#241b12"/>
+      <rect x="6" y="5" width="45" height="20" class="tag-in"/><text x="14" y="19" class="tag-in-txt">INPUT</text>
+      <text x="58" y="19" class="pin-desc" fill="#fde68a"><tspan font-weight="bold">MAIN_GATE_BTN</tspan> (Manual Switch to GND)</text>
+      <line x1="420" y1="15" x2="455" y2="15" stroke="#f59e0b" stroke-width="1.5"/>
+    </g>
+
+    <!-- IO25: BLC Bell Opto -->
+    <g transform="translate(0, 306)">
+      <rect x="0" y="0" width="420" height="30" rx="5" fill="#1e1b2e"/>
+      <rect x="6" y="5" width="55" height="20" class="tag-opto"/><text x="12" y="19" class="tag-opto-txt">OPTO IN</text>
+      <text x="68" y="19" class="pin-desc" fill="#d8b4fe"><tspan font-weight="bold">BLC_BELL_OPTO_IN</tspan> (Active LOW, PULLUP)</text>
+      <line x1="420" y1="15" x2="455" y2="15" stroke="#c084fc" stroke-width="1.5"/>
+    </g>
+
+    <!-- IO26: Close Limit Switch -->
+    <g transform="translate(0, 343)">
+      <rect x="0" y="0" width="420" height="30" rx="5" fill="#241b12"/>
+      <rect x="6" y="5" width="45" height="20" class="tag-in"/><text x="14" y="19" class="tag-in-txt">INPUT</text>
+      <text x="58" y="19" class="pin-desc" fill="#fde68a"><tspan font-weight="bold">LIMIT_CLOSE</tspan> (Gate Closed Sensor to GND)</text>
+      <line x1="420" y1="15" x2="455" y2="15" stroke="#f59e0b" stroke-width="1.5"/>
+    </g>
+
+    <!-- IO27: Open Limit Switch -->
+    <g transform="translate(0, 380)">
+      <rect x="0" y="0" width="420" height="30" rx="5" fill="#241b12"/>
+      <rect x="6" y="5" width="45" height="20" class="tag-in"/><text x="14" y="19" class="tag-in-txt">INPUT</text>
+      <text x="58" y="19" class="pin-desc" fill="#fde68a"><tspan font-weight="bold">LIMIT_OPEN</tspan> (Gate Fully Open Sensor to GND)</text>
+      <line x1="420" y1="15" x2="455" y2="15" stroke="#f59e0b" stroke-width="1.5"/>
+    </g>
+
+    <!-- IO14: Main Gate Lock -->
+    <g transform="translate(0, 417)">
+      <rect x="0" y="0" width="420" height="30" rx="5" fill="#0d231b"/>
+      <rect x="6" y="5" width="55" height="20" class="tag-out"/><text x="12" y="19" class="tag-out-txt">OUTPUT</text>
+      <text x="68" y="19" class="pin-desc" fill="#a7f3d0"><tspan font-weight="bold">MAIN_GATE_LOCK</tspan> (Solenoid Lock Driver)</text>
+      <line x1="420" y1="15" x2="455" y2="15" stroke="#10b981" stroke-width="1.8"/>
+    </g>
+
+    <!-- IO12: Motor FWD -->
+    <g transform="translate(0, 454)">
+      <rect x="0" y="0" width="420" height="30" rx="5" fill="#0d231b"/>
+      <rect x="6" y="5" width="55" height="20" class="tag-out"/><text x="12" y="19" class="tag-out-txt">OUTPUT</text>
+      <text x="68" y="19" class="pin-desc" fill="#a7f3d0"><tspan font-weight="bold">MAIN_GATE_MOTOR_FWD</tspan> (Gate Open Relay/H-Bridge)</text>
+      <line x1="420" y1="15" x2="455" y2="15" stroke="#10b981" stroke-width="1.8"/>
+    </g>
+
+    <!-- GND -->
+    <g transform="translate(0, 491)">
+      <rect x="0" y="0" width="420" height="30" rx="5" fill="#131d2e"/>
+      <rect x="6" y="5" width="45" height="20" class="tag-pwr"/><text x="14" y="19" class="tag-pwr-txt">GND</text>
+      <text x="60" y="19" class="pin-desc" fill="#94a3b8">System Common Logic Ground Rail</text>
+      <line x1="420" y1="15" x2="455" y2="15" stroke="#64748b" stroke-width="1.5"/>
+    </g>
+
+    <!-- IO13: Motor REV -->
+    <g transform="translate(0, 528)">
+      <rect x="0" y="0" width="420" height="30" rx="5" fill="#0d231b"/>
+      <rect x="6" y="5" width="55" height="20" class="tag-out"/><text x="12" y="19" class="tag-out-txt">OUTPUT</text>
+      <text x="68" y="19" class="pin-desc" fill="#a7f3d0"><tspan font-weight="bold">MAIN_GATE_MOTOR_REV</tspan> (Gate Close Relay/H-Bridge)</text>
+      <line x1="420" y1="15" x2="455" y2="15" stroke="#10b981" stroke-width="1.8"/>
+    </g>
+  </g>
+
+  <!-- RIGHT LABELS & CALLOUTS (x: 750 to 1160) -->
+  <g transform="translate(740, 110)">
+    <!-- VIN -->
+    <g transform="translate(0, 10)">
+      <line x1="-30" y1="15" x2="0" y2="15" class="wire-active"/>
+      <rect x="0" y="0" width="420" height="30" rx="5" fill="#131d2e"/>
+      <rect x="6" y="5" width="45" height="20" class="tag-pwr"/><text x="14" y="19" class="tag-pwr-txt">5V IN</text>
+      <text x="60" y="19" class="pin-desc" fill="#e2e8f0"><tspan font-weight="bold">VIN / 5V Input</tspan> (From 5V 2A Buck Regulator)</text>
+    </g>
+
+    <!-- GND -->
+    <g transform="translate(0, 47)">
+      <line x1="-30" y1="15" x2="0" y2="15" stroke="#64748b" stroke-width="1.5"/>
+      <rect x="0" y="0" width="420" height="30" rx="5" fill="#131d2e"/>
+      <rect x="6" y="5" width="45" height="20" class="tag-pwr"/><text x="14" y="19" class="tag-pwr-txt">GND</text>
+      <text x="60" y="19" class="pin-desc" fill="#94a3b8">System Common Logic Ground Rail</text>
+    </g>
+
+    <!-- IO23: BLC Button -->
+    <g transform="translate(0, 84)">
+      <line x1="-30" y1="16" x2="0" y2="16" stroke="#f59e0b" stroke-width="1.5"/>
+      <rect x="0" y="0" width="420" height="30" rx="5" fill="#241b12"/>
+      <rect x="6" y="5" width="45" height="20" class="tag-in"/><text x="14" y="19" class="tag-in-txt">INPUT</text>
+      <text x="58" y="19" class="pin-desc" fill="#fde68a"><tspan font-weight="bold">BLC_BTN</tspan> (Balcony Push Button to GND)</text>
+    </g>
+
+    <!-- IO22: BD1 Bell Opto -->
+    <g transform="translate(0, 121)">
+      <line x1="-30" y1="16" x2="0" y2="16" stroke="#c084fc" stroke-width="1.5"/>
+      <rect x="0" y="0" width="420" height="30" rx="5" fill="#1e1b2e"/>
+      <rect x="6" y="5" width="55" height="20" class="tag-opto"/><text x="12" y="19" class="tag-opto-txt">OPTO IN</text>
+      <text x="68" y="19" class="pin-desc" fill="#d8b4fe"><tspan font-weight="bold">BD1_BELL_OPTO_IN</tspan> (Active LOW, PULLUP)</text>
+    </g>
+
+    <!-- TX / RX -->
+    <g transform="translate(0, 158)">
+      <rect x="0" y="0" width="420" height="30" rx="5" fill="#0f172a"/>
+      <text x="12" y="19" class="pin-desc" fill="#64748b">IO1 / TX0 • Serial Debug Terminal (115200 Baud)</text>
+    </g>
+    <g transform="translate(0, 195)">
+      <rect x="0" y="0" width="420" height="30" rx="5" fill="#0f172a"/>
+      <text x="12" y="19" class="pin-desc" fill="#64748b">IO3 / RX0 • Serial Upload / Diagnostics</text>
+    </g>
+
+    <!-- IO21: BD1 Lock -->
+    <g transform="translate(0, 232)">
+      <line x1="-30" y1="15" x2="0" y2="15" stroke="#10b981" stroke-width="1.8"/>
+      <rect x="0" y="0" width="420" height="30" rx="5" fill="#0d231b"/>
+      <rect x="6" y="5" width="55" height="20" class="tag-out"/><text x="12" y="19" class="tag-out-txt">OUTPUT</text>
+      <text x="68" y="19" class="pin-desc" fill="#a7f3d0"><tspan font-weight="bold">BD1_LOCK</tspan> (Bedroom 1 Lock Relay)</text>
+    </g>
+
+    <!-- IO19: BLC Lock -->
+    <g transform="translate(0, 269)">
+      <line x1="-30" y1="15" x2="0" y2="15" stroke="#10b981" stroke-width="1.8"/>
+      <rect x="0" y="0" width="420" height="30" rx="5" fill="#0d231b"/>
+      <rect x="6" y="5" width="55" height="20" class="tag-out"/><text x="12" y="19" class="tag-out-txt">OUTPUT</text>
+      <text x="68" y="19" class="pin-desc" fill="#a7f3d0"><tspan font-weight="bold">BLC_LOCK</tspan> (Balcony Lock Relay)</text>
+    </g>
+
+    <!-- IO18: Main Bell Opto -->
+    <g transform="translate(0, 306)">
+      <line x1="-30" y1="15" x2="0" y2="15" stroke="#c084fc" stroke-width="1.5"/>
+      <rect x="0" y="0" width="420" height="30" rx="5" fill="#1e1b2e"/>
+      <rect x="6" y="5" width="55" height="20" class="tag-opto"/><text x="12" y="19" class="tag-opto-txt">OPTO IN</text>
+      <text x="68" y="19" class="pin-desc" fill="#d8b4fe"><tspan font-weight="bold">MAIN_BELL_OPTO_IN</tspan> (Active LOW, PULLUP)</text>
+    </g>
+
+    <!-- IO5 (OLD - REMOVED NOTICE) -->
+    <g transform="translate(0, 343)">
+      <rect x="0" y="0" width="420" height="30" rx="5" fill="#1c1917" stroke="#44403c" stroke-width="1"/>
+      <text x="12" y="19" class="pin-desc" fill="#78716c"><s>GPIO 5: Boot-strapping Pin (DISCONNECTED)</s></text>
+    </g>
+
+    <!-- IO17: BD2 Lock (NEW FIX) -->
+    <g transform="translate(0, 380)">
+      <line x1="-30" y1="15" x2="0" y2="15" stroke="#10b981" stroke-width="2.2"/>
+      <rect x="0" y="0" width="420" height="32" rx="5" fill="#064e3b" stroke="#10b981" stroke-width="1.5"/>
+      <rect x="6" y="6" width="55" height="20" class="tag-out"/><text x="12" y="20" class="tag-out-txt">OUTPUT</text>
+      <text x="68" y="20" class="pin-desc" fill="#6ee7b7"><tspan font-weight="bold">BD2_LOCK (GPIO 17)</tspan> • Replaces GPIO 5</text>
+    </g>
+
+    <!-- IO16: BD2 Button -->
+    <g transform="translate(0, 417)">
+      <line x1="-30" y1="15" x2="0" y2="15" stroke="#f59e0b" stroke-width="1.5"/>
+      <rect x="0" y="0" width="420" height="30" rx="5" fill="#241b12"/>
+      <rect x="6" y="5" width="45" height="20" class="tag-in"/><text x="14" y="19" class="tag-in-txt">INPUT</text>
+      <text x="58" y="19" class="pin-desc" fill="#fde68a"><tspan font-weight="bold">BD2_BTN</tspan> (Bedroom 2 Push Button to GND)</text>
+    </g>
+
+    <!-- IO4: BD1 Button -->
+    <g transform="translate(0, 454)">
+      <line x1="-30" y1="15" x2="0" y2="15" stroke="#f59e0b" stroke-width="1.5"/>
+      <rect x="0" y="0" width="420" height="30" rx="5" fill="#241b12"/>
+      <rect x="6" y="5" width="45" height="20" class="tag-in"/><text x="14" y="19" class="tag-in-txt">INPUT</text>
+      <text x="58" y="19" class="pin-desc" fill="#fde68a"><tspan font-weight="bold">BD1_BTN</tspan> (Bedroom 1 Push Button to GND)</text>
+    </g>
+
+    <!-- IO0: Factory Reset Button -->
+    <g transform="translate(0, 491)">
+      <line x1="-30" y1="15" x2="0" y2="15" stroke="#ef4444" stroke-width="1.5"/>
+      <rect x="0" y="0" width="420" height="30" rx="5" fill="#2d1215"/>
+      <rect x="6" y="5" width="55" height="20" class="tag-gpi"/><text x="10" y="19" class="tag-gpi-txt">RESET</text>
+      <text x="68" y="19" class="pin-desc" fill="#fca5a5"><tspan font-weight="bold">FACTORY_RESET</tspan> (Hold 5 sec to wipe credentials)</text>
+    </g>
+
+    <!-- IO2: Wi-Fi Status LED -->
+    <g transform="translate(0, 528)">
+      <line x1="-30" y1="15" x2="0" y2="15" stroke="#38bdf8" stroke-width="1.8"/>
+      <rect x="0" y="0" width="420" height="30" rx="5" fill="#132338"/>
+      <rect x="6" y="5" width="55" height="20" class="tag-out" fill="#0369a1" stroke="#38bdf8"/><text x="12" y="19" class="tag-out-txt" fill="#bae6fd">LED OUT</text>
+      <text x="68" y="19" class="pin-desc" fill="#7dd3fc"><tspan font-weight="bold">WIFI_STATUS_LED</tspan> (Blink = Connecting, Solid = OK)</text>
+    </g>
+  </g>
+
+  <!-- Bottom Pin Legend Box -->
+  <g transform="translate(50, 785)">
+    <rect width="1100" height="80" rx="8" fill="#1e293b" stroke="#334155" stroke-width="1.5" />
+    <text x="20" y="24" fill="#f8fafc" font-family="'Segoe UI', sans-serif" font-size="12px" font-weight="bold">COLOR CODED PIN FUNCTION CATEGORIES:</text>
+
+    <!-- Tags Row -->
+    <g transform="translate(20, 36)">
+      <rect x="0" y="0" width="70" height="24" class="tag-out"/><text x="10" y="16" class="tag-out-txt">OUTPUT</text>
+      <text x="78" y="16" class="pin-sub" fill="#e2e8f0">Actuators / Motor Driver (Active HIGH)</text>
+
+      <rect x="330" y="0" width="60" height="24" class="tag-in"/><text x="10" y="16" class="tag-in-txt">INPUT</text>
+      <text x="398" y="16" class="pin-sub" fill="#e2e8f0">Buttons &amp; Limit Switches (Active LOW)</text>
+
+      <rect x="640" y="0" width="75" height="24" class="tag-opto"/><text x="10" y="16" class="tag-opto-txt">OPTO IN</text>
+      <text x="722" y="16" class="pin-sub" fill="#e2e8f0">Calling Bell Optocouplers (Active LOW)</text>
+
+      <rect x="910" y="0" width="75" height="24" class="tag-gpi"/><text x="10" y="16" class="tag-gpi-txt">GPI ONLY</text>
+      <text x="992" y="16" class="pin-sub" fill="#fca5a5">10kΩ Pull-down REQ</text>
+    </g>
+  </g>
+</svg>
+

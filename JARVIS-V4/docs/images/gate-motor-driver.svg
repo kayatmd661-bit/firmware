@@ -1,0 +1,228 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1150 700" width="100%" height="100%">
+  <defs>
+    <style>
+      .bg { fill: #0b1120; }
+      .title { fill: #f8fafc; font-family: 'Segoe UI', system-ui, sans-serif; font-size: 22px; font-weight: bold; }
+      .subtitle { fill: #94a3b8; font-family: 'Segoe UI', system-ui, sans-serif; font-size: 13px; }
+      .box-block { fill: #1e293b; stroke: #334155; stroke-width: 2; rx: 10; }
+      .box-driver { fill: #172554; stroke: #2563eb; stroke-width: 2; rx: 10; }
+      .box-motor { fill: #14532d; stroke: #22c55e; stroke-width: 2; rx: 10; }
+      .box-warn { fill: #451a03; stroke: #f59e0b; stroke-width: 1.5; rx: 8; }
+      .box-fuse { fill: #450a0a; stroke: #ef4444; stroke-width: 1.5; rx: 6; }
+      .label-txt { fill: #f8fafc; font-family: 'Segoe UI', system-ui, sans-serif; font-size: 14px; font-weight: bold; }
+      .sub-txt { fill: #94a3b8; font-family: 'Segoe UI', system-ui, sans-serif; font-size: 11px; }
+      .pin-name { fill: #38bdf8; font-family: monospace; font-size: 12px; font-weight: bold; }
+      .term-block { fill: #334155; stroke: #64748b; stroke-width: 1; rx: 4; }
+      .term-txt { fill: #f1f5f9; font-family: monospace; font-size: 11px; font-weight: bold; }
+      .wire-fwd { stroke: #10b981; stroke-width: 2.5; fill: none; }
+      .wire-rev { stroke: #06b6d4; stroke-width: 2.5; fill: none; }
+      .wire-pwr12 { stroke: #ef4444; stroke-width: 3; fill: none; }
+      .wire-pwr5 { stroke: #f97316; stroke-width: 2; fill: none; }
+      .wire-gnd { stroke: #475569; stroke-width: 2.5; fill: none; }
+      .wire-mot { stroke: #eab308; stroke-width: 3; fill: none; }
+      .badge-warn { fill: #78350f; stroke: #d97706; stroke-width: 1; rx: 4; }
+      .badge-warn-txt { fill: #fef3c7; font-family: monospace; font-size: 10px; font-weight: bold; }
+    </style>
+    <marker id="arr-green" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M 0 1 L 10 5 L 0 9 z" fill="#10b981" />
+    </marker>
+    <marker id="arr-cyan" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M 0 1 L 10 5 L 0 9 z" fill="#06b6d4" />
+    </marker>
+  </defs>
+
+  <rect width="1150" height="700" class="bg" />
+
+  <!-- Header -->
+  <g transform="translate(40, 40)">
+    <text x="0" y="0" class="title">MAIN GATE MOTOR &amp; H-BRIDGE / RELAY DRIVER WIRING</text>
+    <text x="0" y="22" class="subtitle">Bi-Directional High-Current Actuator Control with Non-Blocking Interlock &amp; Limit Switches</text>
+  </g>
+
+  <!-- Left: ESP32 Logic Outputs -->
+  <g transform="translate(40, 95)">
+    <rect width="250" height="420" class="box-block" />
+    <rect x="0" y="0" width="250" height="45" rx="10" fill="#1e293b" stroke="#38bdf8" stroke-width="1.5"/>
+    <text x="20" y="28" fill="#38bdf8" font-family="'Segoe UI', sans-serif" font-size="15px" font-weight="bold">ESP32 CONTROLLER</text>
+
+    <!-- Pins -->
+    <g transform="translate(20, 70)">
+      <!-- GPIO 12 (FWD) -->
+      <rect x="0" y="0" width="210" height="42" class="term-block" />
+      <text x="12" y="26" class="pin-name">GPIO 12</text>
+      <text x="85" y="26" fill="#e2e8f0" font-family="'Segoe UI', sans-serif" font-size="12px">MOTOR_FWD</text>
+      <circle cx="200" cy="21" r="5" fill="#10b981" />
+
+      <!-- GPIO 13 (REV) -->
+      <rect x="0" y="60" width="210" height="42" class="term-block" />
+      <text x="12" y="86" class="pin-name">GPIO 13</text>
+      <text x="85" y="86" fill="#e2e8f0" font-family="'Segoe UI', sans-serif" font-size="12px">MOTOR_REV</text>
+      <circle cx="200" cy="81" r="5" fill="#06b6d4" />
+
+      <!-- 5V Logic VCC -->
+      <rect x="0" y="120" width="210" height="42" class="term-block" />
+      <text x="12" y="146" class="pin-name" fill="#f97316">5V / VIN</text>
+      <text x="85" y="146" fill="#e2e8f0" font-family="'Segoe UI', sans-serif" font-size="12px">Logic Supply</text>
+      <circle cx="200" cy="141" r="5" fill="#f97316" />
+
+      <!-- GND -->
+      <rect x="0" y="180" width="210" height="42" class="term-block" />
+      <text x="12" y="206" class="pin-name" fill="#94a3b8">GND</text>
+      <text x="85" y="206" fill="#e2e8f0" font-family="'Segoe UI', sans-serif" font-size="12px">Common Ground</text>
+      <circle cx="200" cy="201" r="5" fill="#64748b" />
+
+      <!-- Limit Switches Callout -->
+      <rect x="0" y="240" width="210" height="90" rx="6" fill="#0f172a" stroke="#059669" stroke-width="1"/>
+      <text x="10" y="22" fill="#34d399" font-family="'Segoe UI', sans-serif" font-size="11px" font-weight="bold">FEEDBACK SENSORS:</text>
+      <text x="10" y="45" class="sub-txt">• GPIO 27: LIMIT_OPEN (NO to GND)</text>
+      <text x="10" y="65" class="sub-txt">• GPIO 26: LIMIT_CLOSE (NO to GND)</text>
+      <text x="10" y="82" class="sub-txt">• Internal Pull-up active (LOW=Stop)</text>
+    </g>
+  </g>
+
+  <!-- Center: Motor Driver / Dual Relay Board -->
+  <g transform="translate(370, 95)">
+    <rect width="360" height="420" class="box-driver" />
+    <rect x="0" y="0" width="360" height="45" rx="10" fill="#1e3a8a" stroke="#3b82f6" stroke-width="1.5"/>
+    <text x="20" y="28" fill="#93c5fd" font-family="'Segoe UI', sans-serif" font-size="15px" font-weight="bold">GATE MOTOR DRIVER (BTS7960 / DUAL RELAY)</text>
+
+    <!-- Driver Terminals: Logic Side (Left) -->
+    <g transform="translate(15, 70)">
+      <rect x="0" y="0" width="100" height="35" class="term-block" />
+      <text x="10" y="22" class="term-txt">IN1 / FWD</text>
+
+      <rect x="0" y="60" width="100" height="35" class="term-block" />
+      <text x="10" y="82" class="term-txt">IN2 / REV</text>
+
+      <rect x="0" y="120" width="100" height="35" class="term-block" />
+      <text x="10" y="142" class="term-txt" fill="#f97316">VCC (5V)</text>
+
+      <rect x="0" y="180" width="100" height="35" class="term-block" />
+      <text x="10" y="202" class="term-txt" fill="#94a3b8">GND</text>
+    </g>
+
+    <!-- Internal Relay/H-Bridge Logic Illustration -->
+    <g transform="translate(135, 70)">
+      <rect x="0" y="0" width="95" height="95" rx="6" fill="#0f172a" stroke="#3b82f6" stroke-width="1"/>
+      <text x="12" y="30" fill="#60a5fa" font-family="'Segoe UI', sans-serif" font-size="11px" font-weight="bold">RELAY 1 /</text>
+      <text x="12" y="48" fill="#60a5fa" font-family="'Segoe UI', sans-serif" font-size="11px" font-weight="bold">HALF-BRIDGE A</text>
+      <text x="12" y="75" fill="#94a3b8" font-family="'Segoe UI', sans-serif" font-size="9px">Gate Opening</text>
+
+      <rect x="0" y="115" width="95" height="95" rx="6" fill="#0f172a" stroke="#3b82f6" stroke-width="1"/>
+      <text x="12" y="145" fill="#60a5fa" font-family="'Segoe UI', sans-serif" font-size="11px" font-weight="bold">RELAY 2 /</text>
+      <text x="12" y="163" fill="#60a5fa" font-family="'Segoe UI', sans-serif" font-size="11px" font-weight="bold">HALF-BRIDGE B</text>
+      <text x="12" y="190" fill="#94a3b8" font-family="'Segoe UI', sans-serif" font-size="9px">Gate Closing</text>
+    </g>
+
+    <!-- Driver Terminals: Power Side (Right) -->
+    <g transform="translate(245, 70)">
+      <rect x="0" y="0" width="100" height="45" class="term-block" />
+      <text x="10" y="28" class="term-txt" fill="#eab308">MOTOR +</text>
+
+      <rect x="0" y="75" width="100" height="45" class="term-block" />
+      <text x="10" y="103" class="term-txt" fill="#eab308">MOTOR -</text>
+
+      <rect x="0" y="150" width="100" height="40" class="term-block" fill="#450a0a" stroke="#ef4444"/>
+      <text x="10" y="175" class="term-txt" fill="#fca5a5">B+ (12V/24V)</text>
+
+      <rect x="0" y="210" width="100" height="40" class="term-block" />
+      <text x="10" y="235" class="term-txt" fill="#cbd5e1">B- (PWR GND)</text>
+    </g>
+
+    <!-- Driver Info Box -->
+    <g transform="translate(15, 335)">
+      <rect x="0" y="0" width="330" height="70" rx="6" fill="#0f172a" stroke="#1d4ed8" stroke-width="1"/>
+      <text x="10" y="20" fill="#60a5fa" font-family="'Segoe UI', sans-serif" font-size="11.5px" font-weight="bold">SAFETY &amp; INTERLOCK TIMINGS IN CODE:</text>
+      <text x="10" y="38" class="sub-txt">• 1500ms delay: Unlock Gate Lock before FWD starts</text>
+      <text x="10" y="52" class="sub-txt">• 2000ms delay: Lock Gate Lock after CLOSE limit trip</text>
+      <text x="10" y="66" class="sub-txt">• 25000ms safety timeout: Automatically stops motor</text>
+    </g>
+  </g>
+
+  <!-- Right: 12V/24V Power Supply & DC Motor -->
+  <g transform="translate(810, 95)">
+    <!-- DC Gate Motor Graphic -->
+    <rect width="300" height="230" class="box-motor" />
+    <rect x="0" y="0" width="300" height="40" rx="10" fill="#15803d" stroke="#22c55e" stroke-width="1.5"/>
+    <text x="20" y="26" fill="#f0fdf4" font-family="'Segoe UI', sans-serif" font-size="14px" font-weight="bold">HEAVY DUTY DC GATE MOTOR</text>
+
+    <g transform="translate(20, 55)">
+      <circle cx="60" cy="65" r="45" fill="#1e293b" stroke="#22c55e" stroke-width="2"/>
+      <text x="45" y="72" fill="#22c55e" font-family="'Segoe UI', sans-serif" font-size="20px" font-weight="bold">M</text>
+      <text x="130" y="50" class="label-txt" font-size="13px">12V / 24V DC Motor</text>
+      <text x="130" y="70" class="sub-txt">Current: 5A - 10A Peak</text>
+      <text x="130" y="90" class="sub-txt">Bi-directional rotation</text>
+
+      <!-- Snubber / Flyback Diode across motor -->
+      <rect x="20" y="125" width="250" height="36" rx="4" fill="#052e16" stroke="#16a34a" stroke-width="1"/>
+      <text x="10" y="22" fill="#86efac" font-family="'Segoe UI', sans-serif" font-size="10.5px">Transient Snubber / TVS Diode across M+/M-</text>
+    </g>
+
+    <!-- Power Supply Block -->
+    <g transform="translate(0, 250)">
+      <rect width="300" height="170" class="box-block" stroke="#ef4444"/>
+      <rect x="0" y="0" width="300" height="35" rx="10" fill="#450a0a" stroke="#ef4444" stroke-width="1.5"/>
+      <text x="15" y="23" fill="#fca5a5" font-family="'Segoe UI', sans-serif" font-size="13px" font-weight="bold">MAIN POWER SUPPLY (12V / 24V DC)</text>
+
+      <g transform="translate(15, 50)">
+        <!-- Fuse Box -->
+        <rect x="0" y="0" width="270" height="45" class="box-fuse" />
+        <text x="12" y="27" fill="#fca5a5" font-family="'Segoe UI', sans-serif" font-size="12px" font-weight="bold">10A Inline Fuse (Automotive Blade)</text>
+
+        <!-- Terminals -->
+        <g transform="translate(0, 58)">
+          <rect x="0" y="0" width="125" height="35" class="term-block" fill="#450a0a"/>
+          <text x="10" y="22" class="term-txt" fill="#ef4444">+12V / +24V</text>
+
+          <rect x="145" y="0" width="125" height="35" class="term-block"/>
+          <text x="10" y="22" class="term-txt" fill="#94a3b8">POWER GND</text>
+        </g>
+      </g>
+    </g>
+  </g>
+
+  <!-- WIRING CONNECTIONS -->
+  <!-- Wire GPIO 12 -> IN1 -->
+  <path d="M 250 185 L 385 185" class="wire-fwd" marker-end="url(#arr-green)" />
+  <text x="270" y="177" fill="#10b981" font-family="monospace" font-size="10px" font-weight="bold">HIGH=OPEN</text>
+
+  <!-- Wire GPIO 13 -> IN2 -->
+  <path d="M 250 245 L 385 245" class="wire-rev" marker-end="url(#arr-cyan)" />
+  <text x="270" y="237" fill="#06b6d4" font-family="monospace" font-size="10px" font-weight="bold">HIGH=CLOSE</text>
+
+  <!-- Wire 5V -> VCC -->
+  <path d="M 250 305 L 385 305" class="wire-pwr5" />
+
+  <!-- Wire GND -> GND -->
+  <path d="M 250 365 L 385 365" class="wire-gnd" />
+
+  <!-- Driver Motor+ to DC Motor -->
+  <path d="M 705 187 L 830 187" class="wire-mot" />
+  <!-- Driver Motor- to DC Motor -->
+  <path d="M 705 242 L 830 242" class="wire-mot" />
+
+  <!-- Power Supply + to Driver B+ via Fuse -->
+  <path d="M 825 395 L 755 395 L 755 315 L 705 315" class="wire-pwr12" />
+  <!-- Power Supply GND to Driver B- -->
+  <path d="M 970 435 L 970 460 L 740 460 L 740 375 L 705 375" class="wire-gnd" />
+
+  <!-- Common GND Tie (Logic GND to Power GND) -->
+  <path d="M 330 365 L 330 480 L 740 480" stroke="#64748b" stroke-width="2" stroke-dasharray="4 2" fill="none"/>
+  <text x="440" y="475" fill="#94a3b8" font-family="'Segoe UI', sans-serif" font-size="10.5px">Common System Reference GND [যাচাই প্রয়োজন: driver isolation topology]</text>
+
+  <!-- Bottom Verification Alert Box -->
+  <g transform="translate(40, 540)">
+    <rect width="1070" height="125" class="box-warn" />
+    <g transform="translate(20, 24)">
+      <rect x="0" y="0" width="150" height="24" class="badge-warn"/>
+      <text x="10" y="16" class="badge-warn-txt">[যাচাই প্রয়োজন: হার্ডওয়্যার সতর্কতা]</text>
+
+      <text x="0" y="45" fill="#fde68a" font-family="'Segoe UI', sans-serif" font-size="12px" font-weight="bold">১. রিলে বোর্ড লজিক পোলারিটি (Active HIGH vs Active LOW):</text>
+      <text x="0" y="63" fill="#cbd5e1" font-family="'Segoe UI', sans-serif" font-size="11.5px">ফার্মওয়্যারে GPIO 12 ও GPIO 13-কে HIGH করে মোটর চালু করা হয়। সাধারণ চাইনিজ ৮-চ্যানেল রিলে বোর্ড প্রায়ই Active LOW হয়; সেরূপ হলে ট্রানজিস্টর বা ইনভার্টার বাফার যুক্ত করতে হবে।</text>
+
+      <text x="0" y="85" fill="#fde68a" font-family="'Segoe UI', sans-serif" font-size="12px" font-weight="bold">২. লিমিট সুইচের টাইপ (NO vs NC):</text>
+      <text x="0" y="103" fill="#cbd5e1" font-family="'Segoe UI', sans-serif" font-size="11.5px">কোডে digitalRead() == LOW-কে লিমিট পৌঁছানোর সংকেত হিসেবে ধরা হয়েছে। তাই সুইচের সাধারণ পিন (COM) GND-তে এবং Normally Open (NO) পিন GPIO 27/26-এ লাগাতে হবে।</text>
+    </g>
+  </g>
+</svg>
+

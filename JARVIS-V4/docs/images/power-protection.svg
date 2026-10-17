@@ -1,0 +1,224 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1150 780" width="100%" height="100%">
+  <defs>
+    <style>
+      .bg { fill: #0b1120; }
+      .title { fill: #f8fafc; font-family: 'Segoe UI', system-ui, sans-serif; font-size: 22px; font-weight: bold; }
+      .subtitle { fill: #94a3b8; font-family: 'Segoe UI', system-ui, sans-serif; font-size: 13px; }
+      .box-block { fill: #1e293b; stroke: #334155; stroke-width: 2; rx: 10; }
+      .box-ac { fill: #2d1215; stroke: #ef4444; stroke-width: 1.8; rx: 10; }
+      .box-psu { fill: #1e1e24; stroke: #f97316; stroke-width: 2; rx: 10; }
+      .box-buck { fill: #172554; stroke: #3b82f6; stroke-width: 2; rx: 10; }
+      .box-esp { fill: #0f172a; stroke: #38bdf8; stroke-width: 2; rx: 10; }
+      .fuse-block { fill: #450a0a; stroke: #ef4444; stroke-width: 1.5; rx: 6; }
+      .fuse-txt { fill: #fca5a5; font-family: monospace; font-size: 11px; font-weight: bold; }
+      .term-block { fill: #1e293b; stroke: #475569; stroke-width: 1; rx: 4; }
+      .term-txt { fill: #f8fafc; font-family: monospace; font-size: 11px; font-weight: bold; }
+      .sub-txt { fill: #94a3b8; font-family: 'Segoe UI', system-ui, sans-serif; font-size: 11px; }
+      .wire-ac { stroke: #fca5a5; stroke-width: 2.5; fill: none; }
+      .wire-12v { stroke: #ef4444; stroke-width: 3; fill: none; }
+      .wire-5v { stroke: #f97316; stroke-width: 2.5; fill: none; }
+      .wire-3v3 { stroke: #38bdf8; stroke-width: 2; fill: none; }
+      .wire-gnd { stroke: #475569; stroke-width: 3; fill: none; }
+    </style>
+    <marker id="arr-red" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M 0 1 L 10 5 L 0 9 z" fill="#ef4444" />
+    </marker>
+    <marker id="arr-orng" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M 0 1 L 10 5 L 0 9 z" fill="#f97316" />
+    </marker>
+  </defs>
+
+  <rect width="1150" height="780" class="bg" />
+
+  <!-- Header -->
+  <g transform="translate(40, 35)">
+    <text x="0" y="0" class="title">POWER DISTRIBUTION, REGULATION &amp; TRANSIENT PROTECTION</text>
+    <text x="0" y="22" class="subtitle">Multi-Rail Power Tree • Fuses • Buck Converter • Star Grounding &amp; Flyback Diode Suppression</text>
+  </g>
+
+  <!-- Left: AC Mains & Main DC SMPS -->
+  <g transform="translate(40, 85)">
+    <!-- AC Mains Entry -->
+    <rect width="250" height="150" class="box-ac" />
+    <rect x="0" y="0" width="250" height="38" rx="10" fill="#450a0a" stroke="#ef4444" stroke-width="1.5"/>
+    <text x="15" y="25" fill="#fca5a5" font-family="'Segoe UI', sans-serif" font-size="13px" font-weight="bold">AC MAINS POWER ENTRY</text>
+
+    <g transform="translate(15, 50)">
+      <text x="0" y="18" fill="#f8fafc" font-family="'Segoe UI', sans-serif" font-size="12px" font-weight="bold">220V - 240V AC 50Hz</text>
+      <text x="0" y="36" class="sub-txt">• Double-pole MCB / 2A AC Fuse</text>
+      <text x="0" y="52" class="sub-txt">• MOV Surge Protector (14D431K)</text>
+      <text x="0" y="68" class="sub-txt">• Earth Ground (Chassis)</text>
+    </g>
+
+    <!-- 12V/24V Industrial PSU -->
+    <g transform="translate(0, 175)">
+      <rect width="250" height="345" class="box-psu" />
+      <rect x="0" y="0" width="250" height="38" rx="10" fill="#431407" stroke="#f97316" stroke-width="1.5"/>
+      <text x="15" y="25" fill="#fed7aa" font-family="'Segoe UI', sans-serif" font-size="13px" font-weight="bold">MAIN DC PSU (12V/24V 10A)</text>
+
+      <g transform="translate(15, 50)">
+        <text x="0" y="18" fill="#f8fafc" font-family="'Segoe UI', sans-serif" font-size="12px" font-weight="bold">Industrial Switching SMPS</text>
+        <text x="0" y="38" class="sub-txt">• 12V 10A (120W) or 24V 10A (240W)</text>
+        <text x="0" y="56" class="sub-txt">• Regulated Low-Ripple Output</text>
+        <text x="0" y="74" class="sub-txt">• Short Circuit &amp; Overload Cutoff</text>
+
+        <!-- Screw Terminals -->
+        <g transform="translate(0, 95)">
+          <rect x="0" y="0" width="105" height="38" class="term-block" fill="#450a0a" stroke="#ef4444"/>
+          <text x="8" y="24" class="term-txt" fill="#fca5a5">+V (12V/24V)</text>
+
+          <rect x="115" y="0" width="105" height="38" class="term-block"/>
+          <text x="8" y="24" class="term-txt" fill="#94a3b8">-V (PWR GND)</text>
+        </g>
+
+        <!-- Star Grounding Callout -->
+        <g transform="translate(0, 150)">
+          <rect x="0" y="0" width="220" height="115" rx="6" fill="#0f172a" stroke="#ca8a04" stroke-width="1"/>
+          <text x="10" y="22" fill="#fde047" font-family="'Segoe UI', sans-serif" font-size="11px" font-weight="bold">STAR GROUND JUNCTION:</text>
+          <text x="10" y="42" class="sub-txt">All Ground returns tie back directly</text>
+          <text x="10" y="58" class="sub-txt">to this central PSU -V terminal.</text>
+          <text x="10" y="76" class="sub-txt">Prevents motor inductive return</text>
+          <text x="10" y="94" class="sub-txt">currents from resetting ESP32!</text>
+        </g>
+      </g>
+    </g>
+  </g>
+
+  <!-- Center: Protection Fuses & Buck Regulator -->
+  <g transform="translate(330, 85)">
+    <!-- Triple Independent Fuse Block -->
+    <rect width="400" height="260" class="box-block" stroke="#ef4444" />
+    <rect x="0" y="0" width="400" height="38" rx="10" fill="#450a0a" stroke="#ef4444" stroke-width="1.5"/>
+    <text x="15" y="25" fill="#fca5a5" font-family="'Segoe UI', sans-serif" font-size="13px" font-weight="bold">INDEPENDENT OVER-CURRENT FUSE MATRIX</text>
+
+    <g transform="translate(15, 50)">
+      <!-- Fuse 1: Gate Motor (10A) -->
+      <rect x="0" y="0" width="370" height="58" class="fuse-block" />
+      <text x="12" y="24" class="fuse-txt">FUSE 1: 10A Automotive Blade Fuse</text>
+      <text x="12" y="44" class="sub-txt">Dedicated to Main Gate Motor Driver (H-Bridge B+)</text>
+      <circle cx="345" cy="29" r="6" fill="#ef4444" />
+
+      <!-- Fuse 2: 4 Locks (3A) -->
+      <rect x="0" y="68" width="370" height="58" class="fuse-block" />
+      <text x="12" y="92" class="fuse-txt">FUSE 2: 3A Automotive Blade Fuse</text>
+      <text x="12" y="112" class="sub-txt">Dedicated to 4x Door &amp; Gate Solenoid Locks (Relay COM)</text>
+      <circle cx="345" cy="97" r="6" fill="#ef4444" />
+
+      <!-- Fuse 3: ESP32 Logic (1A) -->
+      <rect x="0" y="136" width="370" height="58" class="fuse-block" stroke="#f97316"/>
+      <text x="12" y="160" class="fuse-txt" fill="#fed7aa">FUSE 3: 1A Fast Blow Fuse / PTC Resettable</text>
+      <text x="12" y="180" class="sub-txt">Feeds DC-DC Step-Down Buck Converter input</text>
+      <circle cx="345" cy="165" r="6" fill="#f97316" />
+    </g>
+
+    <!-- DC-DC Buck Step-Down Regulator (12V -> 5V 2A) -->
+    <g transform="translate(0, 280)">
+      <rect width="400" height="240" class="box-buck" />
+      <rect x="0" y="0" width="400" height="38" rx="10" fill="#1e3a8a" stroke="#3b82f6" stroke-width="1.5"/>
+      <text x="15" y="25" fill="#bfdbfe" font-family="'Segoe UI', sans-serif" font-size="13px" font-weight="bold">DC-DC STEP-DOWN BUCK REGULATOR (5V 2A)</text>
+
+      <g transform="translate(15, 50)">
+        <text x="0" y="18" fill="#f8fafc" font-family="'Segoe UI', sans-serif" font-size="12px" font-weight="bold">High-Efficiency Switching Module (LM2596 / MP1584)</text>
+        <text x="0" y="38" class="sub-txt">• Input: 12V / 24V DC (via Fuse 3)</text>
+        <text x="0" y="56" class="sub-txt">• Output: 5.0V DC ±0.1V @ 2A Peak</text>
+
+        <!-- Components inside -->
+        <g transform="translate(0, 75)">
+          <!-- SS34 Reverse Diode -->
+          <rect x="0" y="0" width="175" height="38" rx="4" fill="#0f172a" stroke="#f59e0b" stroke-width="1"/>
+          <text x="8" y="24" fill="#fde68a" font-family="monospace" font-size="10.5px">SS34 Schottky Diode</text>
+          
+          <!-- Bulk Filtering Cap -->
+          <rect x="190" y="0" width="180" height="38" rx="4" fill="#0f172a" stroke="#06b6d4" stroke-width="1"/>
+          <text x="8" y="24" fill="#67e8f9" font-family="monospace" font-size="10.5px">470µF + 100nF Caps</text>
+        </g>
+
+        <!-- Regulation Quality Note -->
+        <g transform="translate(0, 125)">
+          <text x="0" y="16" fill="#cbd5e1" font-family="'Segoe UI', sans-serif" font-size="10.5px">Filters out high-frequency relay switching noise and motor voltage</text>
+          <text x="0" y="32" fill="#cbd5e1" font-family="'Segoe UI', sans-serif" font-size="10.5px">dips (Brownout protection for ESP32 processor core).</text>
+        </g>
+      </g>
+    </g>
+  </g>
+
+  <!-- Right: Powered Loads & Actuators -->
+  <g transform="translate(770, 85)">
+    <!-- Gate Motor Load -->
+    <rect width="340" height="110" class="box-block" stroke="#ef4444" />
+    <rect x="0" y="0" width="340" height="32" rx="10" fill="#450a0a" />
+    <text x="12" y="22" fill="#fca5a5" font-family="'Segoe UI', sans-serif" font-size="12px" font-weight="bold">GATE MOTOR RAIL (12V/24V 5A-10A)</text>
+    <text x="12" y="55" class="sub-txt">• Directly fed through 10A Blade Fuse</text>
+    <text x="12" y="73" class="sub-txt">• Bi-directional DC Motor with snubber protection</text>
+    <text x="12" y="91" class="sub-txt">• Interlocked via GPIO 12 / 13</text>
+
+    <!-- Lock Solenoids Load -->
+    <g transform="translate(0, 125)">
+      <rect width="340" height="145" class="box-block" stroke="#f97316" />
+      <rect x="0" y="0" width="340" height="32" rx="10" fill="#431407" />
+      <text x="12" y="22" fill="#fed7aa" font-family="'Segoe UI', sans-serif" font-size="12px" font-weight="bold">4x DOOR LOCKS RAIL (12V 3A)</text>
+      <text x="12" y="55" class="sub-txt">• Directly fed through 3A Blade Fuse</text>
+      <text x="12" y="73" class="sub-txt">• Main Gate Lock, BD1 Lock, BLC Lock, BD2 Lock</text>
+      <text x="12" y="95" fill="#fca5a5" font-family="'Segoe UI', sans-serif" font-size="11px" font-weight="bold">• 1N4007 Flyback Diode across each coil</text>
+      <text x="12" y="113" class="sub-txt">  (Prevents reverse spike of &gt;100V)</text>
+    </g>
+
+    <!-- ESP32 Logic Board -->
+    <g transform="translate(0, 285)">
+      <rect width="340" height="235" class="box-esp" />
+      <rect x="0" y="0" width="340" height="35" rx="10" fill="#0369a1" stroke="#38bdf8" stroke-width="1.5"/>
+      <text x="15" y="24" fill="#f0f9ff" font-family="'Segoe UI', sans-serif" font-size="13px" font-weight="bold">ESP32 LOGIC SUBSYSTEM (5V / 3.3V)</text>
+
+      <g transform="translate(15, 48)">
+        <!-- 5V Rail -->
+        <rect x="0" y="0" width="310" height="42" class="term-block" />
+        <text x="10" y="26" class="fuse-txt" fill="#f97316">5V / VIN Rail (500mA - 800mA)</text>
+        <circle cx="290" cy="21" r="5" fill="#f97316" />
+
+        <!-- 3.3V Rail -->
+        <rect x="0" y="52" width="310" height="42" class="term-block" />
+        <text x="10" y="26" class="fuse-txt" fill="#38bdf8">3.3V Regulated Logic Rail</text>
+        <circle cx="290" cy="21" r="5" fill="#38bdf8" />
+
+        <g transform="translate(0, 105)">
+          <text x="0" y="16" class="sub-txt">• Onboard LDO converts 5V -> 3.3V clean power</text>
+          <text x="0" y="34" class="sub-txt">• Feeds ESP32 Dual Core MCU + Wi-Fi Radio</text>
+          <text x="0" y="52" class="sub-txt">• Feeds Optocoupler Phototransistor Pull-ups</text>
+          <text x="0" y="70" class="sub-txt">• Max 12mA per GPIO - Never drive coils directly!</text>
+        </g>
+      </g>
+    </g>
+  </g>
+
+  <!-- WIRING TRACES -->
+  <!-- 12V from PSU to Fuse Block -->
+  <path d="M 270 300 L 330 300 L 330 160 L 345 160" class="wire-12v" />
+
+  <!-- Fuse 1 Output -> Gate Motor -->
+  <path d="M 715 165 L 770 165" class="wire-12v" marker-end="url(#arr-red)" />
+
+  <!-- Fuse 2 Output -> Door Locks -->
+  <path d="M 715 233 L 770 233" class="wire-12v" marker-end="url(#arr-red)" />
+
+  <!-- Fuse 3 Output -> Buck Regulator In -->
+  <path d="M 715 301 L 740 301 L 740 400 L 730 400" class="wire-12v" />
+
+  <!-- Buck Regulator 5V Output -> ESP32 VIN -->
+  <path d="M 730 460 L 750 460 L 750 355 L 770 355" class="wire-5v" marker-end="url(#arr-orng)" />
+
+  <!-- Common GND Bus Trace -->
+  <path d="M 270 350 L 310 350 L 310 545 L 850 545 L 850 520" class="wire-gnd" />
+  <text x="450" y="540" fill="#94a3b8" font-family="'Segoe UI', sans-serif" font-size="11px">Common Reference Ground Trunk (Star Ground to PSU -V)</text>
+
+  <!-- Bottom Safety Guidelines Box -->
+  <g transform="translate(40, 625)">
+    <rect width="1070" height="120" rx="8" fill="#1e1e24" stroke="#ca8a04" stroke-width="1.5" />
+    <g transform="translate(20, 24)">
+      <text x="0" y="0" fill="#fde047" font-family="'Segoe UI', sans-serif" font-size="13px" font-weight="bold">পাওয়ার ও প্রোটেকশন বাস্তবায়ন নির্দেশিকা [যাচাই প্রয়োজন]:</text>
+      <text x="0" y="24" fill="#cbd5e1" font-family="'Segoe UI', sans-serif" font-size="11.5px">১. <tspan fill="#fca5a5" font-weight="bold">কখনই ESP32-এর 5V পিন থেকে মোটর বা লক চালাবেন না:</tspan> মোটর ঘোরার সময় বা লকের সোলেনয়েড চালু হলে বিশাল কারেন্ট টানে। ESP32 থেকে দিলে ভোল্টেজ ড্রপ হয়ে ওয়্যারলেস কানেকশন কেটে যাবে বা বোর্ড সাথে সাথে রিস্টার্ট নেবে (Brownout Crash)।</text>
+      <text x="0" y="48" fill="#cbd5e1" font-family="'Segoe UI', sans-serif" font-size="11.5px">২. <tspan fill="#fde68a" font-weight="bold">স্বাধীন ফিউজ নিরাপত্তা:</tspan> যদি মোটর জ্যাম হয়ে যায়, কেবল ১০A ফিউজ কাটবে; কন্ট্রোলার এবং অন্যান্য দরজার লক সচল থাকবে। একই ফিউজ সবকিছুর জন্য ব্যবহার করলে একটি ত্রুটিতে পুরো বাড়ি আনলক বা লকডাউন হয়ে যেতে পারে।</text>
+      <text x="0" y="72" fill="#cbd5e1" font-family="'Segoe UI', sans-serif" font-size="11.5px">৩. <tspan fill="#67e8f9" font-weight="bold">বাক কনভার্টারের আউটপুট ভোল্টেজ পরীক্ষা:</tspan> বাক কনভার্টারের আউটপুট ESP32-এ সংযোগ করার পূর্বে অবশ্যই মাল্টিমিটার দিয়ে মেপে ঠিক ৫.০V নিশ্চিত করে নিতে হবে। অতিরিক্ত ভোল্টেজ (যেমন ৭V-১২V) ঢুকলে ESP32 সাথে সাথে জ্বলে যাবে।</text>
+    </g>
+  </g>
+</svg>
+

@@ -1,0 +1,316 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 780" width="100%" height="100%">
+  <defs>
+    <style>
+      .bg { fill: #0f172a; }
+      .title { fill: #f8fafc; font-family: 'Segoe UI', system-ui, sans-serif; font-size: 24px; font-weight: bold; }
+      .subtitle { fill: #94a3b8; font-family: 'Segoe UI', system-ui, sans-serif; font-size: 13px; }
+      .box-esp { fill: #1e293b; stroke: #38bdf8; stroke-width: 2.5; rx: 12; }
+      .box-power { fill: #1e1e24; stroke: #ef4444; stroke-width: 2; rx: 10; }
+      .box-actuator { fill: #1e2522; stroke: #10b981; stroke-width: 2; rx: 10; }
+      .box-input { fill: #262118; stroke: #f59e0b; stroke-width: 2; rx: 10; }
+      .box-opto { fill: #241c2e; stroke: #a855f7; stroke-width: 2; rx: 10; }
+      .box-comm { fill: #182635; stroke: #06b6d4; stroke-width: 2; rx: 10; }
+      .section-hdr { font-family: 'Segoe UI', system-ui, sans-serif; font-size: 15px; font-weight: bold; }
+      .item-txt { fill: #e2e8f0; font-family: 'Segoe UI', system-ui, sans-serif; font-size: 12px; }
+      .item-sub { fill: #94a3b8; font-family: 'Segoe UI', system-ui, sans-serif; font-size: 10.5px; }
+      .badge-pin { fill: #334155; stroke: #64748b; stroke-width: 1; rx: 4; }
+      .badge-pin-txt { fill: #38bdf8; font-family: 'Segoe UI', monospace; font-size: 10px; font-weight: bold; }
+      .badge-crit { fill: #7f1d1d; stroke: #ef4444; stroke-width: 1; rx: 4; }
+      .badge-crit-txt { fill: #fca5a5; font-family: 'Segoe UI', system-ui; font-size: 9.5px; font-weight: bold; }
+      .wire-pwr { stroke: #ef4444; stroke-width: 2; fill: none; stroke-dasharray: 6 3; }
+      .wire-sig { stroke: #38bdf8; stroke-width: 1.8; fill: none; }
+      .wire-in { stroke: #f59e0b; stroke-width: 1.8; fill: none; }
+      .wire-out { stroke: #10b981; stroke-width: 1.8; fill: none; }
+      .wire-opto { stroke: #c084fc; stroke-width: 1.8; fill: none; }
+      .wire-net { stroke: #06b6d4; stroke-width: 2; fill: none; stroke-dasharray: 4 2; }
+      .chip-pin { fill: #cbd5e1; font-family: monospace; font-size: 10px; }
+    </style>
+    <marker id="arrow-blue" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M 0 1 L 10 5 L 0 9 z" fill="#38bdf8" />
+    </marker>
+    <marker id="arrow-green" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M 0 1 L 10 5 L 0 9 z" fill="#10b981" />
+    </marker>
+    <marker id="arrow-amber" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M 0 1 L 10 5 L 0 9 z" fill="#f59e0b" />
+    </marker>
+    <marker id="arrow-purple" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M 0 1 L 10 5 L 0 9 z" fill="#c084fc" />
+    </marker>
+  </defs>
+
+  <!-- Background -->
+  <rect width="1200" height="780" class="bg" />
+
+  <!-- Header -->
+  <g transform="translate(40, 40)">
+    <text x="0" y="0" class="title">JARVIS V4 SYSTEM ARCHITECTURE</text>
+    <text x="0" y="22" class="subtitle">Smart Home Automation Master Controller • ESP32-WROOM-32 (Non-blocking Engine)</text>
+    <rect x="870" y="-18" width="250" height="34" rx="6" fill="#1e293b" stroke="#38bdf8" stroke-width="1.2"/>
+    <circle cx="885" cy="-1" r="5" fill="#10b981" />
+    <text x="898" y="3" fill="#e2e8f0" font-family="'Segoe UI', sans-serif" font-size="11px" font-weight="bold">FIRMWARE V4 (GPIO17 UPGRADE)</text>
+  </g>
+
+  <!-- TOP BLOCK: Network & Cloud Communication -->
+  <g transform="translate(40, 80)">
+    <rect width="1120" height="110" class="box-comm" />
+    <text x="20" y="28" fill="#38bdf8" class="section-hdr">NETWORK &amp; IOT ECOSYSTEM (WI-FI &amp; MQTT)</text>
+    
+    <!-- Home Assistant -->
+    <rect x="30" y="42" width="220" height="52" rx="6" fill="#0f172a" stroke="#0284c7" stroke-width="1.2"/>
+    <text x="42" y="62" class="item-txt" font-weight="bold">Home Assistant</text>
+    <text x="42" y="80" class="item-sub">MQTT Auto-Discovery (5 Entities)</text>
+
+    <!-- MQTT Broker -->
+    <rect x="310" y="42" width="210" height="52" rx="6" fill="#0f172a" stroke="#0284c7" stroke-width="1.2"/>
+    <text x="322" y="62" class="item-txt" font-weight="bold">Mosquitto / EMQX Broker</text>
+    <text x="322" y="80" class="item-sub">Port 1883 • LWT &amp; State Topics</text>
+
+    <!-- Web Dashboard Port 80 -->
+    <rect x="580" y="42" width="240" height="52" rx="6" fill="#0f172a" stroke="#06b6d4" stroke-width="1.2"/>
+    <text x="592" y="62" class="item-txt" font-weight="bold">Embedded HTTP Dashboard</text>
+    <text x="592" y="80" class="item-sub">Port 80 • http://jarvis-v4.local/</text>
+
+    <!-- Setup AP Port 81 -->
+    <rect x="880" y="42" width="210" height="52" rx="6" fill="#0f172a" stroke="#eab308" stroke-width="1.2"/>
+    <text x="892" y="62" class="item-txt" font-weight="bold">WiFiManager Portal</text>
+    <text x="892" y="80" class="item-sub">Port 81 • Jarvis_V4_Setup AP</text>
+
+    <!-- Arrows between Comm blocks -->
+    <path d="M 250 68 L 310 68" stroke="#0284c7" stroke-width="2" marker-end="url(#arrow-blue)" />
+    <path d="M 520 68 L 580 68" stroke="#0284c7" stroke-width="2" marker-end="url(#arrow-blue)" />
+    <path d="M 820 68 L 880 68" stroke="#06b6d4" stroke-width="1.5" stroke-dasharray="3 3" />
+  </g>
+
+  <!-- LEFT COLUMN: Power & Local Hardware Inputs -->
+  
+  <!-- 1. Power Supply Subsystem -->
+  <g transform="translate(40, 210)">
+    <rect width="330" height="150" class="box-power" />
+    <text x="18" y="26" fill="#f87171" class="section-hdr">POWER SUBSYSTEM &amp; PROTECTION</text>
+    
+    <g transform="translate(18, 40)">
+      <rect x="0" y="0" width="135" height="42" rx="5" fill="#0f172a" stroke="#ef4444" stroke-width="1"/>
+      <text x="10" y="18" class="item-txt" font-weight="bold">12V / 24V PSU</text>
+      <text x="10" y="32" class="item-sub">Actuators &amp; Locks</text>
+
+      <rect x="155" y="0" width="140" height="42" rx="5" fill="#0f172a" stroke="#f97316" stroke-width="1"/>
+      <text x="165" y="18" class="item-txt" font-weight="bold">DC-DC Buck (5V 2A)</text>
+      <text x="165" y="32" class="item-sub">ESP32 Vin Rail</text>
+    </g>
+
+    <g transform="translate(18, 92)">
+      <rect x="0" y="0" width="295" height="44" rx="5" fill="#2d1215" stroke="#ef4444" stroke-width="1"/>
+      <text x="10" y="18" fill="#fca5a5" font-family="'Segoe UI', sans-serif" font-size="11px" font-weight="bold">Triple Inline Fuse &amp; Flyback Diode</text>
+      <text x="10" y="33" fill="#f87171" font-family="'Segoe UI', sans-serif" font-size="10px">10A Gate Fuse • 3A Lock Fuse • 1A ESP32 Fuse</text>
+    </g>
+  </g>
+
+  <!-- 2. Local Push Buttons & Limit Switches -->
+  <g transform="translate(40, 380)">
+    <rect width="330" height="350" class="box-input" />
+    <text x="18" y="26" fill="#fbbf24" class="section-hdr">LOCAL BUTTONS &amp; SENSORS (INPUT)</text>
+    <text x="18" y="44" class="item-sub">Internal PULLUP Active • Debounced (60ms/350ms)</text>
+
+    <!-- Buttons Table -->
+    <g transform="translate(18, 55)">
+      <!-- Main Gate Button -->
+      <rect x="0" y="0" width="295" height="38" rx="5" fill="#0f172a" stroke="#475569" stroke-width="1"/>
+      <text x="12" y="24" class="item-txt">Main Gate Manual Switch</text>
+      <rect x="225" y="8" width="60" height="22" class="badge-pin"/>
+      <text x="233" y="23" class="badge-pin-txt">GPIO 33</text>
+
+      <!-- BD1 Button -->
+      <rect x="0" y="44" width="295" height="38" rx="5" fill="#0f172a" stroke="#475569" stroke-width="1"/>
+      <text x="12" y="68" class="item-txt">Bedroom 1 Push Button</text>
+      <rect x="225" y="52" width="60" height="22" class="badge-pin"/>
+      <text x="238" y="67" class="badge-pin-txt">GPIO 4</text>
+
+      <!-- BLC Button -->
+      <rect x="0" y="88" width="295" height="38" rx="5" fill="#0f172a" stroke="#475569" stroke-width="1"/>
+      <text x="12" y="112" class="item-txt">Balcony Push Button</text>
+      <rect x="225" y="96" width="60" height="22" class="badge-pin"/>
+      <text x="233" y="111" class="badge-pin-txt">GPIO 23</text>
+
+      <!-- BD2 Button -->
+      <rect x="0" y="132" width="295" height="38" rx="5" fill="#0f172a" stroke="#475569" stroke-width="1"/>
+      <text x="12" y="156" class="item-txt">Bedroom 2 Push Button</text>
+      <rect x="225" y="140" width="60" height="22" class="badge-pin"/>
+      <text x="233" y="155" class="badge-pin-txt">GPIO 16</text>
+
+      <!-- Limit Switches -->
+      <rect x="0" y="176" width="295" height="38" rx="5" fill="#0f172a" stroke="#059669" stroke-width="1"/>
+      <text x="12" y="200" class="item-txt">Limit Switch (Open End)</text>
+      <rect x="225" y="184" width="60" height="22" class="badge-pin"/>
+      <text x="233" y="199" class="badge-pin-txt">GPIO 27</text>
+
+      <rect x="0" y="220" width="295" height="38" rx="5" fill="#0f172a" stroke="#059669" stroke-width="1"/>
+      <text x="12" y="244" class="item-txt">Limit Switch (Close End)</text>
+      <rect x="225" y="228" width="60" height="22" class="badge-pin"/>
+      <text x="233" y="243" class="badge-pin-txt">GPIO 26</text>
+
+      <!-- Wi-Fi LED & Boot -->
+      <rect x="0" y="264" width="140" height="24" rx="4" fill="#1e293b"/>
+      <text x="8" y="16" class="item-sub">Wi-Fi LED: <tspan fill="#38bdf8" font-weight="bold">GPIO 2</tspan></text>
+
+      <rect x="155" y="264" width="140" height="24" rx="4" fill="#1e293b"/>
+      <text x="163" y="16" class="item-sub">Reset/BOOT: <tspan fill="#fca5a5" font-weight="bold">GPIO 0</tspan></text>
+    </g>
+  </g>
+
+  <!-- CENTER BLOCK: ESP32 Core Controller -->
+  <g transform="translate(410, 210)">
+    <rect width="380" height="520" class="box-esp" />
+    <text x="25" y="35" fill="#38bdf8" class="section-hdr" font-size="18px">ESP32 CONTROLLER CORE</text>
+    <text x="25" y="55" class="item-sub">Dual Core 240MHz • 3s Hardware Watchdog Protection</text>
+
+    <!-- Internal firmware blocks -->
+    <g transform="translate(25, 75)">
+      <!-- Non-blocking Hardware Engine -->
+      <rect x="0" y="0" width="330" height="70" rx="8" fill="#0f172a" stroke="#0284c7" stroke-width="1.2"/>
+      <text x="15" y="25" fill="#38bdf8" font-family="'Segoe UI', sans-serif" font-size="13px" font-weight="bold">Non-Blocking State Engine</text>
+      <text x="15" y="44" class="item-sub">• Gate interlock timer: 1500ms unlock delay</text>
+      <text x="15" y="59" class="item-sub">• Gate lock delay: 2000ms after close limit</text>
+
+      <!-- Non-volatile Storage -->
+      <rect x="0" y="85" width="330" height="60" rx="8" fill="#0f172a" stroke="#475569" stroke-width="1.2"/>
+      <text x="15" y="108" fill="#e2e8f0" font-family="'Segoe UI', sans-serif" font-size="13px" font-weight="bold">Preferences NVS Flash Storage</text>
+      <text x="15" y="128" class="item-sub">Namespace 'jarvis_config' &amp; 'jarvis_v4_final'</text>
+
+      <!-- Safety Watchdog -->
+      <rect x="0" y="160" width="330" height="55" rx="8" fill="#0f172a" stroke="#ef4444" stroke-width="1.2"/>
+      <text x="15" y="183" fill="#f87171" font-family="'Segoe UI', sans-serif" font-size="13px" font-weight="bold">3-Second Hardware Watchdog</text>
+      <text x="15" y="201" class="item-sub">esp_task_wdt_reset() in main loop &amp; network hooks</text>
+
+      <!-- Asynchronous Network Tasks -->
+      <rect x="0" y="230" width="330" height="70" rx="8" fill="#0f172a" stroke="#06b6d4" stroke-width="1.2"/>
+      <text x="15" y="252" fill="#22d3ee" font-family="'Segoe UI', sans-serif" font-size="13px" font-weight="bold">Asynchronous Network Tasks</text>
+      <text x="15" y="271" class="item-sub">• PubSubClient 1-sec socket timeout (anti-freeze)</text>
+      <text x="15" y="287" class="item-sub">• Auto-reconnect without stalling local buttons</text>
+
+      <!-- Boot-strapping Safety Notice -->
+      <rect x="0" y="315" width="330" height="100" rx="8" fill="#1e1e24" stroke="#eab308" stroke-width="1.2"/>
+      <text x="15" y="338" fill="#facc15" font-family="'Segoe UI', sans-serif" font-size="12px" font-weight="bold">HARDWARE FIX: GPIO 5 -> GPIO 17</text>
+      <text x="15" y="358" class="item-sub">• GPIO 5 was a bootstrapping pin causing boot-locks</text>
+      <text x="15" y="375" class="item-sub">• Relocated Bedroom 2 lock to safe GPIO 17</text>
+      <text x="15" y="393" class="item-sub">• Clean restart guaranteed even after power surges</text>
+    </g>
+  </g>
+
+  <!-- RIGHT COLUMN: Actuators & Optocouplers -->
+
+  <!-- 1. Actuators Subsystem (Motor + 4 Locks) -->
+  <g transform="translate(830, 210)">
+    <rect width="330" height="240" class="box-actuator" />
+    <text x="18" y="26" fill="#34d399" class="section-hdr">ACTUATORS &amp; DRIVER OUTPUTS</text>
+    <text x="18" y="44" class="item-sub">Active HIGH Drive • Relay / MOSFET Isolated Drivers</text>
+
+    <g transform="translate(18, 55)">
+      <!-- Gate Motor FWD -->
+      <rect x="0" y="0" width="295" height="32" rx="5" fill="#0f172a" stroke="#475569" stroke-width="1"/>
+      <text x="12" y="21" class="item-txt">Gate Motor FWD (Open)</text>
+      <rect x="225" y="5" width="60" height="22" class="badge-pin"/>
+      <text x="233" y="20" class="badge-pin-txt">GPIO 12</text>
+
+      <!-- Gate Motor REV -->
+      <rect x="0" y="36" width="295" height="32" rx="5" fill="#0f172a" stroke="#475569" stroke-width="1"/>
+      <text x="12" y="57" class="item-txt">Gate Motor REV (Close)</text>
+      <rect x="225" y="41" width="60" height="22" class="badge-pin"/>
+      <text x="233" y="56" class="badge-pin-txt">GPIO 13</text>
+
+      <!-- Main Gate Lock -->
+      <rect x="0" y="72" width="295" height="32" rx="5" fill="#0f172a" stroke="#475569" stroke-width="1"/>
+      <text x="12" y="93" class="item-txt">Main Gate Solenoid Lock</text>
+      <rect x="225" y="77" width="60" height="22" class="badge-pin"/>
+      <text x="233" y="92" class="badge-pin-txt">GPIO 14</text>
+
+      <!-- BD1 Lock -->
+      <rect x="0" y="108" width="295" height="32" rx="5" fill="#0f172a" stroke="#475569" stroke-width="1"/>
+      <text x="12" y="129" class="item-txt">Bedroom 1 Door Lock</text>
+      <rect x="225" y="113" width="60" height="22" class="badge-pin"/>
+      <text x="233" y="128" class="badge-pin-txt">GPIO 21</text>
+
+      <!-- BLC Lock -->
+      <rect x="0" y="144" width="295" height="32" rx="5" fill="#0f172a" stroke="#475569" stroke-width="1"/>
+      <text x="12" y="165" class="item-txt">Balcony Door Lock</text>
+      <rect x="225" y="149" width="60" height="22" class="badge-pin"/>
+      <text x="233" y="164" class="badge-pin-txt">GPIO 19</text>
+
+      <!-- BD2 Lock -->
+      <rect x="0" y="180" width="295" height="32" rx="5" fill="#0f172a" stroke="#10b981" stroke-width="1.2"/>
+      <text x="12" y="201" class="item-txt" font-weight="bold">Bedroom 2 Door Lock</text>
+      <rect x="225" y="185" width="60" height="22" class="badge-pin"/>
+      <text x="233" y="200" class="badge-pin-txt">GPIO 17</text>
+    </g>
+  </g>
+
+  <!-- 2. Galvanically Isolated Optocouplers -->
+  <g transform="translate(830, 465)">
+    <rect width="330" height="265" class="box-opto" />
+    <text x="18" y="24" fill="#c084fc" class="section-hdr">ISOLATED OPTOCOUPLERS (PC817)</text>
+
+    <!-- Group A: Lock-Status Optos (GPI with 10k Pull-down) -->
+    <g transform="translate(18, 38)">
+      <rect x="0" y="0" width="295" height="102" rx="6" fill="#181124" stroke="#a855f7" stroke-width="1"/>
+      <text x="10" y="18" fill="#e9d5ff" font-family="'Segoe UI', sans-serif" font-size="11.5px" font-weight="bold">Lock Status Inputs (Active HIGH)</text>
+      <rect x="185" y="6" width="102" height="18" class="badge-crit"/>
+      <text x="190" y="19" class="badge-crit-txt">10k PULL-DOWN REQ</text>
+
+      <text x="10" y="40" class="item-sub">Main Lock Status: <tspan fill="#38bdf8" font-weight="bold">GPIO 34 (GPI)</tspan></text>
+      <text x="10" y="58" class="item-sub">BD1 Lock Status:   <tspan fill="#38bdf8" font-weight="bold">GPIO 35 (GPI)</tspan></text>
+      <text x="10" y="76" class="item-sub">BLC Lock Status:   <tspan fill="#38bdf8" font-weight="bold">GPIO 36 (GPI/VP)</tspan></text>
+      <text x="10" y="94" class="item-sub">BD2 Lock Status:   <tspan fill="#38bdf8" font-weight="bold">GPIO 39 (GPI/VN)</tspan></text>
+    </g>
+
+    <!-- Group B: Keypad Calling Bell Optos -->
+    <g transform="translate(18, 150)">
+      <rect x="0" y="0" width="295" height="102" rx="6" fill="#181124" stroke="#c084fc" stroke-width="1"/>
+      <text x="10" y="18" fill="#e9d5ff" font-family="'Segoe UI', sans-serif" font-size="11.5px" font-weight="bold">Keypad Calling-Bell Inputs (Active LOW)</text>
+      <text x="10" y="32" class="item-sub">Internal PULLUP Active • Safe 3.3V Opto Output</text>
+
+      <text x="10" y="52" class="item-sub">Main Gate Bell: <tspan fill="#38bdf8" font-weight="bold">GPIO 18</tspan> (Unlocked: LOCK / Locked: Event)</text>
+      <text x="10" y="68" class="item-sub">BD1 Keypad Bell: <tspan fill="#38bdf8" font-weight="bold">GPIO 22</tspan> (Debounced 40ms / Guard 1.2s)</text>
+      <text x="10" y="84" class="item-sub">BLC Keypad Bell: <tspan fill="#38bdf8" font-weight="bold">GPIO 25</tspan> (Publishes MQTT: jarvis_v4/doorbell)</text>
+      <text x="10" y="100" class="item-sub">BD2 Keypad Bell: <tspan fill="#38bdf8" font-weight="bold">GPIO 32</tspan> (Direct Doorbell Automation)</text>
+    </g>
+  </g>
+
+  <!-- INTERCONNECT WIRES & BUSSES -->
+  <!-- Wire from Buttons to ESP -->
+  <path d="M 370 450 L 410 450" class="wire-in" marker-end="url(#arrow-amber)" />
+  <path d="M 370 600 L 410 600" class="wire-in" marker-end="url(#arrow-amber)" />
+
+  <!-- Wire from ESP to Actuators -->
+  <path d="M 790 330 L 830 330" class="wire-out" marker-end="url(#arrow-green)" />
+
+  <!-- Wire from Opto to ESP -->
+  <path d="M 830 520 L 790 520" class="wire-opto" marker-end="url(#arrow-purple)" />
+  <path d="M 830 630 L 790 630" class="wire-opto" marker-end="url(#arrow-purple)" />
+
+  <!-- Wire from ESP to Network -->
+  <path d="M 600 210 L 600 190" class="wire-net" marker-end="url(#arrow-blue)" />
+
+  <!-- Wire from Power to ESP & Actuators -->
+  <path d="M 370 270 L 410 270" class="wire-pwr" />
+  <path d="M 175 210 L 175 195 L 995 195 L 995 210" class="wire-pwr" />
+
+  <!-- Footer Legend -->
+  <g transform="translate(40, 745)">
+    <text x="0" y="15" fill="#64748b" font-family="'Segoe UI', sans-serif" font-size="11px">LEGEND:</text>
+    <line x1="60" y1="12" x2="90" y2="12" stroke="#ef4444" stroke-width="2" stroke-dasharray="4 2"/>
+    <text x="96" y="15" fill="#94a3b8" font-family="'Segoe UI', sans-serif" font-size="11px">Power Rail (12V/5V)</text>
+
+    <line x1="220" y1="12" x2="250" y2="12" stroke="#10b981" stroke-width="2"/>
+    <text x="256" y="15" fill="#94a3b8" font-family="'Segoe UI', sans-serif" font-size="11px">Actuator Output (Active HIGH)</text>
+
+    <line x1="440" y1="12" x2="470" y2="12" stroke="#f59e0b" stroke-width="2"/>
+    <text x="476" y="15" fill="#94a3b8" font-family="'Segoe UI', sans-serif" font-size="11px">Digital Sensor (Active LOW)</text>
+
+    <line x1="650" y1="12" x2="680" y2="12" stroke="#c084fc" stroke-width="2"/>
+    <text x="686" y="15" fill="#94a3b8" font-family="'Segoe UI', sans-serif" font-size="11px">Opto Isolated Signal</text>
+
+    <line x1="830" y1="12" x2="860" y2="12" stroke="#06b6d4" stroke-width="2" stroke-dasharray="3 2"/>
+    <text x="866" y="15" fill="#94a3b8" font-family="'Segoe UI', sans-serif" font-size="11px">Wi-Fi / Network Protocol</text>
+  </g>
+</svg>
+

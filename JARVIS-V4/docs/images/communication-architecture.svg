@@ -1,0 +1,206 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1180 780" width="100%" height="100%">
+  <defs>
+    <style>
+      .bg { fill: #0b1120; }
+      .title { fill: #f8fafc; font-family: 'Segoe UI', system-ui, sans-serif; font-size: 22px; font-weight: bold; }
+      .subtitle { fill: #94a3b8; font-family: 'Segoe UI', system-ui, sans-serif; font-size: 13px; }
+      .box-block { fill: #1e293b; stroke: #334155; stroke-width: 2; rx: 10; }
+      .box-ha { fill: #0f233a; stroke: #0284c7; stroke-width: 2; rx: 10; }
+      .box-mqtt { fill: #112824; stroke: #10b981; stroke-width: 2; rx: 10; }
+      .box-esp { fill: #1e1b2e; stroke: #8b5cf6; stroke-width: 2; rx: 10; }
+      .term-block { fill: #1e293b; stroke: #475569; stroke-width: 1; rx: 4; }
+      .term-txt { fill: #f8fafc; font-family: monospace; font-size: 11px; font-weight: bold; }
+      .sub-txt { fill: #94a3b8; font-family: 'Segoe UI', system-ui, sans-serif; font-size: 11px; }
+      .topic-badge { fill: #0f172a; stroke: #0284c7; stroke-width: 1; rx: 4; }
+      .topic-txt { fill: #38bdf8; font-family: monospace; font-size: 10px; font-weight: bold; }
+      .topic-stat { fill: #0f172a; stroke: #10b981; stroke-width: 1; rx: 4; }
+      .topic-stat-txt { fill: #34d399; font-family: monospace; font-size: 10px; font-weight: bold; }
+      .topic-event { fill: #0f172a; stroke: #c084fc; stroke-width: 1; rx: 4; }
+      .topic-event-txt { fill: #d8b4fe; font-family: monospace; font-size: 10px; font-weight: bold; }
+      .wire-disc { stroke: #0284c7; stroke-width: 2; fill: none; stroke-dasharray: 4 2; }
+      .wire-cmd { stroke: #f59e0b; stroke-width: 2.2; fill: none; }
+      .wire-stat { stroke: #10b981; stroke-width: 2.2; fill: none; }
+      .wire-bell { stroke: #c084fc; stroke-width: 2; fill: none; }
+    </style>
+    <marker id="arr-blue" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M 0 1 L 10 5 L 0 9 z" fill="#0284c7" />
+    </marker>
+    <marker id="arr-grn" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M 0 1 L 10 5 L 0 9 z" fill="#10b981" />
+    </marker>
+    <marker id="arr-amb" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M 0 1 L 10 5 L 0 9 z" fill="#f59e0b" />
+    </marker>
+    <marker id="arr-purp" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M 0 1 L 10 5 L 0 9 z" fill="#c084fc" />
+    </marker>
+  </defs>
+
+  <rect width="1180" height="780" class="bg" />
+
+  <!-- Header -->
+  <g transform="translate(40, 35)">
+    <text x="0" y="0" class="title">COMMUNICATION ARCHITECTURE: HOME ASSISTANT &amp; MQTT</text>
+    <text x="0" y="22" class="subtitle">MQTT Discovery • Bi-Directional State Synchronization • Non-Blocking Asynchronous Telemetry</text>
+  </g>
+
+  <!-- Left: Home Assistant Platform -->
+  <g transform="translate(40, 85)">
+    <rect width="330" height="520" class="box-ha" />
+    <rect x="0" y="0" width="330" height="42" rx="10" fill="#0369a1" stroke="#38bdf8" stroke-width="1.5"/>
+    <text x="15" y="27" fill="#f0f9ff" font-family="'Segoe UI', sans-serif" font-size="14px" font-weight="bold">HOME ASSISTANT (CORE / OS)</text>
+
+    <g transform="translate(15, 55)">
+      <!-- Auto-Discovery Entities -->
+      <rect x="0" y="0" width="300" height="155" rx="6" fill="#0b1726" stroke="#0284c7" stroke-width="1"/>
+      <text x="10" y="22" fill="#38bdf8" font-family="'Segoe UI', sans-serif" font-size="11.5px" font-weight="bold">DISCOVERED ENTITIES (ZERO-CONFIG):</text>
+      
+      <text x="10" y="44" class="sub-txt">• <tspan fill="#f8fafc" font-weight="bold">switch.jarvis_maingate</tspan> (Gate switch)</text>
+      <text x="10" y="62" class="sub-txt">• <tspan fill="#f8fafc" font-weight="bold">lock.jarvis_mainlock</tspan> (Main gate lock)</text>
+      <text x="10" y="80" class="sub-txt">• <tspan fill="#f8fafc" font-weight="bold">lock.jarvis_bd1</tspan> (Bedroom 1 lock)</text>
+      <text x="10" y="98" class="sub-txt">• <tspan fill="#f8fafc" font-weight="bold">lock.jarvis_blc</tspan> (Balcony lock)</text>
+      <text x="10" y="116" class="sub-txt">• <tspan fill="#f8fafc" font-weight="bold">lock.jarvis_bd2</tspan> (Bedroom 2 lock)</text>
+      <text x="10" y="136" fill="#34d399" font-family="'Segoe UI', sans-serif" font-size="10px">Device: "Jarvis Home System" (Liton Tech)</text>
+
+      <!-- Automations & Dashboard UI -->
+      <g transform="translate(0, 168)">
+        <rect x="0" y="0" width="300" height="135" rx="6" fill="#0b1726" stroke="#0284c7" stroke-width="1"/>
+        <text x="10" y="22" fill="#38bdf8" font-family="'Segoe UI', sans-serif" font-size="11.5px" font-weight="bold">AUTOMATIONS &amp; CALLING BELL:</text>
+        <text x="10" y="44" class="sub-txt">• Doorbell Trigger: Event on MQTT topic</text>
+        <text x="10" y="60" class="sub-txt">  <tspan fill="#d8b4fe" font-family="monospace">jarvis_v4/doorbell/&lt;uid&gt; == 'PRESS'</tspan></text>
+        <text x="10" y="78" class="sub-txt">• Triggers Mobile Push Notifications</text>
+        <text x="10" y="94" class="sub-txt">• Streams CCTV camera feed to smart display</text>
+        <text x="10" y="110" class="sub-txt">• Plays chime sound on smart speakers</text>
+      </g>
+
+      <!-- Availability LWT Listener -->
+      <g transform="translate(0, 315)">
+        <rect x="0" y="0" width="300" height="85" rx="6" fill="#0b1726" stroke="#10b981" stroke-width="1"/>
+        <text x="10" y="22" fill="#34d399" font-family="'Segoe UI', sans-serif" font-size="11.5px" font-weight="bold">AVAILABILITY &amp; LWT STATUS:</text>
+        <text x="10" y="42" class="sub-txt">• Topic: <tspan fill="#38bdf8" font-family="monospace">jarvis_v4/status/availability</tspan></text>
+        <text x="10" y="58" class="sub-txt">• "online" (Retained) / "offline" (LWT)</text>
+        <text x="10" y="74" class="sub-txt">• Shows entities as Unavailable if ESP loses power</text>
+      </g>
+    </g>
+  </g>
+
+  <!-- Center: Mosquitto / EMQX MQTT Broker -->
+  <g transform="translate(410, 85)">
+    <rect width="360" height="520" class="box-mqtt" />
+    <rect x="0" y="0" width="360" height="42" rx="10" fill="#064e3b" stroke="#10b981" stroke-width="1.5"/>
+    <text x="15" y="27" fill="#a7f3d0" font-family="'Segoe UI', sans-serif" font-size="14px" font-weight="bold">MQTT BROKER (PORT 1883)</text>
+
+    <g transform="translate(15, 55)">
+      <text x="0" y="18" fill="#f8fafc" font-family="'Segoe UI', sans-serif" font-size="12px" font-weight="bold">MQTT TOPIC ROUTING TABLE:</text>
+
+      <!-- 1. Discovery Topics -->
+      <g transform="translate(0, 30)">
+        <rect x="0" y="0" width="330" height="65" class="term-block" />
+        <rect x="8" y="8" width="130" height="18" class="topic-badge"/>
+        <text x="14" y="21" class="topic-txt">HA AUTO-DISCOVERY</text>
+        <text x="8" y="42" fill="#cbd5e1" font-family="monospace" font-size="10px">homeassistant/lock/jarvis_*/config</text>
+        <text x="8" y="56" fill="#cbd5e1" font-family="monospace" font-size="10px">homeassistant/switch/jarvis_*/config</text>
+      </g>
+
+      <!-- 2. Command Topics -->
+      <g transform="translate(0, 105)">
+        <rect x="0" y="0" width="330" height="65" class="term-block" />
+        <rect x="8" y="8" width="115" height="18" class="topic-badge" stroke="#f59e0b"/>
+        <text x="14" y="21" class="topic-txt" fill="#fde68a">COMMAND TOPICS</text>
+        <text x="8" y="42" fill="#cbd5e1" font-family="monospace" font-size="10px">jarvis_v4/+/cmd</text>
+        <text x="8" y="56" fill="#94a3b8" font-family="'Segoe UI', sans-serif" font-size="10px">Payload: "LOCK", "UNLOCK", "ON", "OFF"</text>
+      </g>
+
+      <!-- 3. State Topics -->
+      <g transform="translate(0, 180)">
+        <rect x="0" y="0" width="330" height="65" class="term-block" />
+        <rect x="8" y="8" width="140" height="18" class="topic-stat"/>
+        <text x="14" y="21" class="topic-stat-txt">STATE TOPICS (RETAIN)</text>
+        <text x="8" y="42" fill="#cbd5e1" font-family="monospace" font-size="10px">jarvis_v4/status/&lt;uid&gt;</text>
+        <text x="8" y="56" fill="#94a3b8" font-family="'Segoe UI', sans-serif" font-size="10px">Payload: "LOCKED" / "UNLOCKED", "ON" / "OFF"</text>
+      </g>
+
+      <!-- 4. Bell Events -->
+      <g transform="translate(0, 255)">
+        <rect x="0" y="0" width="330" height="65" class="term-block" />
+        <rect x="8" y="8" width="140" height="18" class="topic-event"/>
+        <text x="14" y="21" class="topic-event-txt">DOORBELL (NO-RETAIN)</text>
+        <text x="8" y="42" fill="#cbd5e1" font-family="monospace" font-size="10px">jarvis_v4/doorbell/&lt;uid&gt;</text>
+        <text x="8" y="56" fill="#94a3b8" font-family="'Segoe UI', sans-serif" font-size="10px">Payload: "PRESS" (Instant trigger)</text>
+      </g>
+
+      <!-- Reconnect Architecture Note -->
+      <g transform="translate(0, 330)">
+        <rect x="0" y="0" width="330" height="70" rx="6" fill="#064e3b" />
+        <text x="10" y="20" fill="#a7f3d0" font-family="'Segoe UI', sans-serif" font-size="11px" font-weight="bold">NON-BLOCKING BROKER SERVICE:</text>
+        <text x="10" y="38" class="sub-txt">• 5-second retry interval in firmware</text>
+        <text x="10" y="52" class="sub-txt">• 1-second socket timeout prevents loop freeze</text>
+      </g>
+    </g>
+  </g>
+
+  <!-- Right: ESP32 Firmware Network Engine -->
+  <g transform="translate(810, 85)">
+    <rect width="330" height="520" class="box-esp" />
+    <rect x="0" y="0" width="330" height="42" rx="10" fill="#4c1d95" stroke="#8b5cf6" stroke-width="1.5"/>
+    <text x="15" y="27" fill="#ede9fe" font-family="'Segoe UI', sans-serif" font-size="14px" font-weight="bold">ESP32 NETWORK SUBSYSTEM</text>
+
+    <g transform="translate(15, 55)">
+      <!-- Web Dashboard -->
+      <rect x="0" y="0" width="300" height="95" rx="6" fill="#0f172a" stroke="#06b6d4" stroke-width="1"/>
+      <text x="10" y="22" fill="#22d3ee" font-family="'Segoe UI', sans-serif" font-size="11.5px" font-weight="bold">EMBEDDED WEB DASHBOARD:</text>
+      <text x="10" y="42" class="sub-txt">• Port 80: Dedicated real-time dashboard</text>
+      <text x="10" y="58" class="sub-txt">• mDNS: <tspan fill="#38bdf8" font-family="monospace">http://jarvis-v4.local/</tspan></text>
+      <text x="10" y="74" class="sub-txt">• Direct manual lock/gate control via browser</text>
+      <text x="10" y="88" class="sub-txt">• Live Wi-Fi, IP, and MQTT connection diagnostic</text>
+
+      <!-- WiFiManager Portal -->
+      <g transform="translate(0, 108)">
+        <rect x="0" y="0" width="300" height="95" rx="6" fill="#0f172a" stroke="#eab308" stroke-width="1"/>
+        <text x="10" y="22" fill="#facc15" font-family="'Segoe UI', sans-serif" font-size="11.5px" font-weight="bold">FALLBACK SETUP PORTAL:</text>
+        <text x="10" y="42" class="sub-txt">• Port 81: Coexists without conflicting port 80</text>
+        <text x="10" y="58" class="sub-txt">• Hotspot SSID: <tspan fill="#fde68a" font-family="monospace">Jarvis_V4_Setup</tspan></text>
+        <text x="10" y="74" class="sub-txt">• Non-blocking Web portal for entering Wi-Fi/MQTT</text>
+        <text x="10" y="88" class="sub-txt">• Stores to Preferences flash memory permanently</text>
+      </g>
+
+      <!-- Non-blocking Guarantee -->
+      <g transform="translate(0, 215)">
+        <rect x="0" y="0" width="300" height="185" rx="6" fill="#0f172a" stroke="#8b5cf6" stroke-width="1"/>
+        <text x="10" y="22" fill="#c084fc" font-family="'Segoe UI', sans-serif" font-size="11.5px" font-weight="bold">INDEPENDENT HARDWARE LOOP:</text>
+        <text x="10" y="44" class="sub-txt">• Even if Wi-Fi router is completely DOWN,</text>
+        <text x="10" y="60" class="sub-txt">• Even if Home Assistant server is OFF,</text>
+        <text x="10" y="76" class="sub-txt">• Even if MQTT broker hangs:</text>
+        <text x="10" y="100" fill="#34d399" font-family="'Segoe UI', sans-serif" font-size="11.5px" font-weight="bold">✓ Physical push buttons still work instantly!</text>
+        <text x="10" y="122" fill="#34d399" font-family="'Segoe UI', sans-serif" font-size="11.5px" font-weight="bold">✓ Limit switches stop motor instantly!</text>
+        <text x="10" y="144" fill="#34d399" font-family="'Segoe UI', sans-serif" font-size="11.5px" font-weight="bold">✓ Optocoupler calling bell locks doors!</text>
+        <text x="10" y="166" fill="#34d399" font-family="'Segoe UI', sans-serif" font-size="11.5px" font-weight="bold">✓ 3-sec Watchdog never trips falsely!</text>
+      </g>
+    </g>
+  </g>
+
+  <!-- WIRING TRACES -->
+  <!-- HA to MQTT -->
+  <path d="M 370 200 L 410 200" class="wire-disc" marker-end="url(#arr-blue)" />
+  <path d="M 410 260 L 370 260" class="wire-cmd" marker-end="url(#arr-amb)" />
+  <path d="M 410 320 L 370 320" class="wire-stat" marker-end="url(#arr-grn)" />
+  <path d="M 410 380 L 370 380" class="wire-bell" marker-end="url(#arr-purp)" />
+
+  <!-- MQTT to ESP32 -->
+  <path d="M 810 200 L 770 200" class="wire-disc" />
+  <path d="M 770 260 L 810 260" class="wire-cmd" marker-end="url(#arr-amb)" />
+  <path d="M 810 320 L 770 320" class="wire-stat" marker-end="url(#arr-grn)" />
+  <path d="M 810 380 L 770 380" class="wire-bell" marker-end="url(#arr-purp)" />
+
+  <!-- Bottom Topic Specs Box -->
+  <g transform="translate(40, 625)">
+    <rect width="1100" height="120" rx="8" fill="#1e1e24" stroke="#0284c7" stroke-width="1.5" />
+    <g transform="translate(20, 24)">
+      <text x="0" y="0" fill="#38bdf8" font-family="'Segoe UI', sans-serif" font-size="13px" font-weight="bold">হোম অ্যাসিস্ট্যান্ট ও MQTT ব্যবহারের সংক্ষিপ্ত নির্দেশিকা:</text>
+      <text x="0" y="24" fill="#cbd5e1" font-family="'Segoe UI', sans-serif" font-size="11.5px">১. <tspan fill="#34d399" font-weight="bold">অটো-ডিসকভারি (Auto-Discovery):</tspan> ESP32 ওয়াই-ফাই এবং MQTT ব্রোকারে কানেক্ট হওয়া মাত্রই ৫টি ডিভাইস (১টি গেট সুইচ ও ৪টি ডোর লক) স্বয়ংক্রিয়ভাবে Home Assistant-এর ড্যাশবোর্ডে যোগ হবে। কোনো YAML কোড লেখার প্রয়োজন নেই।</text>
+      <text x="0" y="48" fill="#cbd5e1" font-family="'Segoe UI', sans-serif" font-size="11.5px">২. <tspan fill="#fde68a" font-weight="bold">স্ট্যাটাস সিঙ্ক (State Sync):</tspan> গেট বা দরজার লক যেভাবেই খোলা বা বন্ধ হোক (Home Assistant, ওয়েব ড্যাশবোর্ড, কিংবা ফিজিক্যাল পুশ বাটন), তৎক্ষণাৎ তার সঠিক অবস্থা সব ইন্টারফেসে রিয়েল-টাইমে আপডেট হয়ে যায়।</text>
+      <text x="0" y="72" fill="#cbd5e1" font-family="'Segoe UI', sans-serif" font-size="11.5px">৩. <tspan fill="#d8b4fe" font-weight="bold">কলিং বেল ইভেন্ট:</tspan> দরজা লক থাকা অবস্থায় আউটডোর কিপ্যাডের কল বাটন চাপলে Home Assistant-এ ইভেন্ট তৈরি হয়, যা দিয়ে ফোনে ভিজিটর নোটিফিকেশন বা স্মার্ট স্পিকারে ডোরবেল রিং বাজানো যায়।</text>
+    </g>
+  </g>
+</svg>
+

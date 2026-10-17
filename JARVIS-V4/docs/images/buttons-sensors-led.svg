@@ -1,0 +1,235 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1150 780" width="100%" height="100%">
+  <defs>
+    <style>
+      .bg { fill: #0b1120; }
+      .title { fill: #f8fafc; font-family: 'Segoe UI', system-ui, sans-serif; font-size: 22px; font-weight: bold; }
+      .subtitle { fill: #94a3b8; font-family: 'Segoe UI', system-ui, sans-serif; font-size: 13px; }
+      .box-block { fill: #1e293b; stroke: #334155; stroke-width: 2; rx: 10; }
+      .box-btn { fill: #271f16; stroke: #f59e0b; stroke-width: 2; rx: 10; }
+      .box-sensor { fill: #0d2b21; stroke: #10b981; stroke-width: 2; rx: 10; }
+      .box-led { fill: #13273e; stroke: #0284c7; stroke-width: 2; rx: 10; }
+      .term-block { fill: #1e293b; stroke: #475569; stroke-width: 1; rx: 4; }
+      .term-txt { fill: #f8fafc; font-family: monospace; font-size: 11px; font-weight: bold; }
+      .pin-name { fill: #38bdf8; font-family: monospace; font-size: 11.5px; font-weight: bold; }
+      .sub-txt { fill: #94a3b8; font-family: 'Segoe UI', system-ui, sans-serif; font-size: 11px; }
+      .wire-btn { stroke: #f59e0b; stroke-width: 2.2; fill: none; }
+      .wire-lim { stroke: #10b981; stroke-width: 2.2; fill: none; }
+      .wire-led { stroke: #38bdf8; stroke-width: 2.2; fill: none; }
+      .wire-gnd { stroke: #64748b; stroke-width: 2; fill: none; }
+      .resistor-box { fill: #78350f; stroke: #f59e0b; stroke-width: 1.2; rx: 3; }
+      .resistor-txt { fill: #fef3c7; font-family: monospace; font-size: 10px; font-weight: bold; }
+    </style>
+    <marker id="arr-amb" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M 0 1 L 10 5 L 0 9 z" fill="#f59e0b" />
+    </marker>
+    <marker id="arr-grn" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M 0 1 L 10 5 L 0 9 z" fill="#10b981" />
+    </marker>
+  </defs>
+
+  <rect width="1150" height="780" class="bg" />
+
+  <!-- Header -->
+  <g transform="translate(40, 35)">
+    <text x="0" y="0" class="title">PUSH BUTTONS, LIMIT SWITCHES &amp; STATUS LED WIRING</text>
+    <text x="0" y="22" class="subtitle">Direct Sensor &amp; UI Peripheral Interfaces with Internal Pull-Ups and Firmware Debouncing</text>
+  </g>
+
+  <!-- Left: Physical User Interfaces & Limit Switches -->
+  <g transform="translate(40, 85)">
+    <!-- 4 Push Buttons -->
+    <rect width="320" height="280" class="box-btn" />
+    <rect x="0" y="0" width="320" height="38" rx="10" fill="#451a03" stroke="#f59e0b" stroke-width="1.5"/>
+    <text x="15" y="25" fill="#fde68a" font-family="'Segoe UI', sans-serif" font-size="13px" font-weight="bold">MANUAL PUSH BUTTONS (MOMENTARY)</text>
+
+    <g transform="translate(15, 50)">
+      <!-- Button 1 -->
+      <rect x="0" y="0" width="290" height="48" class="term-block" />
+      <circle cx="25" cy="24" r="10" fill="#451a03" stroke="#f59e0b" stroke-width="2"/>
+      <text x="45" y="22" fill="#fef3c7" font-family="'Segoe UI', sans-serif" font-size="11.5px" font-weight="bold">Main Gate Button (Switch to GND)</text>
+      <text x="45" y="38" class="sub-txt">Toggles Gate OPEN / CLOSE</text>
+      <circle cx="270" cy="24" r="5" fill="#f59e0b" />
+
+      <!-- Button 2 -->
+      <rect x="0" y="55" width="290" height="48" class="term-block" />
+      <circle cx="25" cy="24" r="10" fill="#451a03" stroke="#f59e0b" stroke-width="2"/>
+      <text x="45" y="22" fill="#fef3c7" font-family="'Segoe UI', sans-serif" font-size="11.5px" font-weight="bold">Bedroom 1 Door Button</text>
+      <text x="45" y="38" class="sub-txt">Toggles BD1 Lock / Unlock</text>
+      <circle cx="270" cy="24" r="5" fill="#f59e0b" />
+
+      <!-- Button 3 -->
+      <rect x="0" y="110" width="290" height="48" class="term-block" />
+      <circle cx="25" cy="24" r="10" fill="#451a03" stroke="#f59e0b" stroke-width="2"/>
+      <text x="45" y="22" fill="#fef3c7" font-family="'Segoe UI', sans-serif" font-size="11.5px" font-weight="bold">Balcony Door Button</text>
+      <text x="45" y="38" class="sub-txt">Toggles BLC Lock / Unlock</text>
+      <circle cx="270" cy="24" r="5" fill="#f59e0b" />
+
+      <!-- Button 4 -->
+      <rect x="0" y="165" width="290" height="48" class="term-block" />
+      <circle cx="25" cy="24" r="10" fill="#451a03" stroke="#f59e0b" stroke-width="2"/>
+      <text x="45" y="22" fill="#fef3c7" font-family="'Segoe UI', sans-serif" font-size="11.5px" font-weight="bold">Bedroom 2 Door Button</text>
+      <text x="45" y="38" class="sub-txt">Toggles BD2 Lock / Unlock</text>
+      <circle cx="270" cy="24" r="5" fill="#f59e0b" />
+    </g>
+
+    <!-- 2 Limit Switches -->
+    <g transform="translate(0, 295)">
+      <rect width="320" height="225" class="box-sensor" />
+      <rect x="0" y="0" width="320" height="38" rx="10" fill="#064e3b" stroke="#10b981" stroke-width="1.5"/>
+      <text x="15" y="25" fill="#a7f3d0" font-family="'Segoe UI', sans-serif" font-size="13px" font-weight="bold">MAGNETIC / MECHANICAL LIMIT SWITCHES</text>
+
+      <g transform="translate(15, 50)">
+        <!-- Limit Open -->
+        <rect x="0" y="0" width="290" height="65" class="term-block" />
+        <text x="12" y="24" fill="#a7f3d0" font-family="'Segoe UI', sans-serif" font-size="12px" font-weight="bold">LIMIT_OPEN (Fully Open Sensor)</text>
+        <text x="12" y="42" class="sub-txt">Normally Open (NO) -> Connects to GND</text>
+        <text x="12" y="56" class="sub-txt">Stops FWD Motor when gate hits open mark</text>
+        <circle cx="270" cy="30" r="5" fill="#10b981" />
+
+        <!-- Limit Close -->
+        <rect x="0" y="75" width="290" height="65" class="term-block" />
+        <text x="12" y="24" fill="#a7f3d0" font-family="'Segoe UI', sans-serif" font-size="12px" font-weight="bold">LIMIT_CLOSE (Fully Closed Sensor)</text>
+        <text x="12" y="42" class="sub-txt">Normally Open (NO) -> Connects to GND</text>
+        <text x="12" y="56" class="sub-txt">Stops REV Motor &amp; initiates 2s lock timer</text>
+        <circle cx="270" cy="30" r="5" fill="#10b981" />
+
+        <text x="10" y="155" fill="#cbd5e1" font-family="'Segoe UI', sans-serif" font-size="10.5px">Switches connect pin to ESP32 GND when triggered.</text>
+      </g>
+    </g>
+  </g>
+
+  <!-- Center: ESP32 Inputs & Logic Wiring -->
+  <g transform="translate(420, 85)">
+    <rect width="360" height="520" class="box-block" />
+    <rect x="0" y="0" width="360" height="42" rx="10" fill="#1e293b" stroke="#38bdf8" stroke-width="1.5"/>
+    <text x="18" y="27" fill="#38bdf8" font-family="'Segoe UI', sans-serif" font-size="14px" font-weight="bold">ESP32 INPUT PINS (INTERNAL PULLUP)</text>
+
+    <!-- Pins mapping -->
+    <g transform="translate(15, 55)">
+      <!-- GPIO 33 -->
+      <rect x="0" y="0" width="330" height="44" class="term-block" />
+      <text x="10" y="26" class="pin-name">GPIO 33</text>
+      <text x="80" y="26" fill="#fde68a" font-family="'Segoe UI', sans-serif" font-size="11.5px">MAIN_GATE_BTN (Active LOW)</text>
+      <circle cx="15" cy="22" r="5" fill="#f59e0b" />
+
+      <!-- GPIO 4 -->
+      <rect x="0" y="52" width="330" height="44" class="term-block" />
+      <text x="10" y="26" class="pin-name">GPIO 4</text>
+      <text x="80" y="26" fill="#fde68a" font-family="'Segoe UI', sans-serif" font-size="11.5px">BD1_BTN (Active LOW)</text>
+      <circle cx="15" cy="22" r="5" fill="#f59e0b" />
+
+      <!-- GPIO 23 -->
+      <rect x="0" y="104" width="330" height="44" class="term-block" />
+      <text x="10" y="26" class="pin-name">GPIO 23</text>
+      <text x="80" y="26" fill="#fde68a" font-family="'Segoe UI', sans-serif" font-size="11.5px">BLC_BTN (Active LOW)</text>
+      <circle cx="15" cy="22" r="5" fill="#f59e0b" />
+
+      <!-- GPIO 16 -->
+      <rect x="0" y="156" width="330" height="44" class="term-block" />
+      <text x="10" y="26" class="pin-name">GPIO 16</text>
+      <text x="80" y="26" fill="#fde68a" font-family="'Segoe UI', sans-serif" font-size="11.5px">BD2_BTN (Active LOW)</text>
+      <circle cx="15" cy="22" r="5" fill="#f59e0b" />
+
+      <!-- GPIO 27 -->
+      <rect x="0" y="210" width="330" height="44" class="term-block" />
+      <text x="10" y="26" class="pin-name" fill="#10b981">GPIO 27</text>
+      <text x="80" y="26" fill="#a7f3d0" font-family="'Segoe UI', sans-serif" font-size="11.5px">LIMIT_OPEN (Active LOW)</text>
+      <circle cx="15" cy="22" r="5" fill="#10b981" />
+
+      <!-- GPIO 26 -->
+      <rect x="0" y="262" width="330" height="44" class="term-block" />
+      <text x="10" y="26" class="pin-name" fill="#10b981">GPIO 26</text>
+      <text x="80" y="26" fill="#a7f3d0" font-family="'Segoe UI', sans-serif" font-size="11.5px">LIMIT_CLOSE (Active LOW)</text>
+      <circle cx="15" cy="22" r="5" fill="#10b981" />
+
+      <!-- Common Ground -->
+      <rect x="0" y="320" width="330" height="38" class="term-block" />
+      <text x="10" y="24" class="pin-name" fill="#94a3b8">ESP32 GND</text>
+      <text x="85" y="24" fill="#cbd5e1" font-family="'Segoe UI', sans-serif" font-size="11px">Ground Return for All Switches</text>
+
+      <!-- Firmware Filtering Specs -->
+      <rect x="0" y="370" width="330" height="75" rx="6" fill="#0f172a" stroke="#0284c7" stroke-width="1"/>
+      <text x="10" y="20" fill="#38bdf8" font-family="'Segoe UI', sans-serif" font-size="11px" font-weight="bold">DEBOUNCE FILTERING PARAMETERS:</text>
+      <text x="10" y="38" class="sub-txt">• LOCAL_INPUT_DEBOUNCE_MS = 60ms</text>
+      <text x="10" y="52" class="sub-txt">• LOCAL_INPUT_GUARD_MS = 350ms</text>
+      <text x="10" y="66" class="sub-txt">• Filters out mechanical contact bounce &amp; arc noise</text>
+    </g>
+  </g>
+
+  <!-- Right: Status Indicators (Wi-Fi LED & Factory Reset BOOT Button) -->
+  <g transform="translate(830, 85)">
+    <!-- Wi-Fi Status LED -->
+    <rect width="280" height="250" class="box-led" />
+    <rect x="0" y="0" width="280" height="38" rx="10" fill="#0369a1" stroke="#38bdf8" stroke-width="1.5"/>
+    <text x="15" y="25" fill="#f0f9ff" font-family="'Segoe UI', sans-serif" font-size="13px" font-weight="bold">WI-FI STATUS LED (GPIO 2)</text>
+
+    <g transform="translate(15, 50)">
+      <!-- LED Component -->
+      <rect x="0" y="0" width="250" height="85" rx="6" fill="#0f172a" stroke="#0284c7" />
+      <circle cx="35" cy="42" r="16" fill="#0284c7" stroke="#38bdf8" stroke-width="2"/>
+      <circle cx="35" cy="42" r="8" fill="#e0f2fe" />
+      <text x="65" y="35" fill="#e0f2fe" font-family="'Segoe UI', sans-serif" font-size="12px" font-weight="bold">External Blue/Green LED</text>
+      
+      <!-- Resistor -->
+      <rect x="65" y="45" width="85" height="22" class="resistor-box" />
+      <text x="73" y="60" class="resistor-txt">330Ω to 1kΩ</text>
+      <text x="160" y="60" fill="#94a3b8" font-family="monospace" font-size="11px">-> GND</text>
+
+      <!-- Behaviors -->
+      <g transform="translate(0, 100)">
+        <rect x="0" y="0" width="250" height="85" rx="6" fill="#082f49" />
+        <text x="10" y="22" fill="#38bdf8" font-family="'Segoe UI', sans-serif" font-size="11px" font-weight="bold">LED BLINK PATTERNS:</text>
+        <text x="10" y="42" class="sub-txt">• Fast Blink (1 Hz): Connecting / AP Mode</text>
+        <text x="10" y="58" class="sub-txt">• Solid ON: Connected to Wi-Fi LAN</text>
+        <text x="10" y="74" class="sub-txt">• OFF: Hardware booting / No power</text>
+      </g>
+    </g>
+
+    <!-- Factory Reset / BOOT Button -->
+    <g transform="translate(0, 265)">
+      <rect width="280" height="255" class="box-block" stroke="#ef4444" />
+      <rect x="0" y="0" width="280" height="38" rx="10" fill="#450a0a" stroke="#ef4444" stroke-width="1.5"/>
+      <text x="15" y="25" fill="#fca5a5" font-family="'Segoe UI', sans-serif" font-size="13px" font-weight="bold">BOOT / FACTORY RESET (GPIO 0)</text>
+
+      <g transform="translate(15, 50)">
+        <rect x="0" y="0" width="250" height="55" class="term-block" fill="#2d1215" stroke="#ef4444"/>
+        <text x="10" y="24" fill="#fca5a5" font-family="'Segoe UI', sans-serif" font-size="12px" font-weight="bold">ESP32 Onboard BOOT Button</text>
+        <text x="10" y="42" class="sub-txt">Hardwired to GPIO 0 with Pull-Up</text>
+
+        <!-- Instructions -->
+        <g transform="translate(0, 70)">
+          <rect x="0" y="0" width="250" height="115" rx="6" fill="#181112" stroke="#b91c1c" stroke-width="1"/>
+          <text x="10" y="22" fill="#ef4444" font-family="'Segoe UI', sans-serif" font-size="11px" font-weight="bold">5-SECOND RECOVERY RESET:</text>
+          <text x="10" y="42" class="sub-txt">• Hold BOOT button continuously for ≥ 5s</text>
+          <text x="10" y="58" class="sub-txt">• Wipes NVS flash: 'jarvis_config'</text>
+          <text x="10" y="74" class="sub-txt">• Clears Wi-Fi &amp; MQTT stored credentials</text>
+          <text x="10" y="90" class="sub-txt">• Resets device state &amp; restarts ESP32</text>
+          <text x="10" y="106" class="sub-txt">• Re-opens 'Jarvis_V4_Setup' Portal (Port 81)</text>
+        </g>
+      </g>
+    </g>
+  </g>
+
+  <!-- WIRING TRACES -->
+  <!-- Buttons to ESP32 -->
+  <path d="M 325 160 L 435 160" class="wire-btn" marker-end="url(#arr-amb)" />
+  <path d="M 325 215 L 435 215" class="wire-btn" marker-end="url(#arr-amb)" />
+  <path d="M 325 270 L 435 270" class="wire-btn" marker-end="url(#arr-amb)" />
+  <path d="M 325 325 L 435 325" class="wire-btn" marker-end="url(#arr-amb)" />
+
+  <!-- Limits to ESP32 -->
+  <path d="M 325 410 L 435 410" class="wire-lim" marker-end="url(#arr-grn)" />
+  <path d="M 325 465 L 435 465" class="wire-lim" marker-end="url(#arr-grn)" />
+
+  <!-- Bottom Guidelines Box -->
+  <g transform="translate(40, 625)">
+    <rect width="1070" height="120" rx="8" fill="#1e1e24" stroke="#475569" stroke-width="1.5" />
+    <g transform="translate(20, 24)">
+      <text x="0" y="0" fill="#f8fafc" font-family="'Segoe UI', sans-serif" font-size="13px" font-weight="bold">ব্যবহারিক সংযোগ ও মাল্টিমিটার টেস্টিং নির্দেশিকা:</text>
+      <text x="0" y="24" fill="#cbd5e1" font-family="'Segoe UI', sans-serif" font-size="11.5px">১. <tspan fill="#fde68a" font-weight="bold">পুশ বাটন টেস্টিং:</tspan> মাল্টিমিটারকে Continuity/Beep মোডে রাখুন। বাটনের দুটি টার্মিনাল পরীক্ষা করুন। বাটন চাপ দিলে বিপ শব্দ হবে (Normally Open কন্টাক্ট)। একটি টার্মিনাল ESP32 GND এবং অন্যটি সংশ্লিষ্ট GPIO-তে যুক্ত করুন।</text>
+      <text x="0" y="48" fill="#a7f3d0" font-family="'Segoe UI', sans-serif" font-size="11.5px">২. <tspan fill="#10b981" font-weight="bold">লিমিট সুইচ ওয়্যারিং:</tspan> গেট সম্পূর্ণ খোলা বা বন্ধ অবস্থায় সুইচটি শর্ট হয়ে পিনকে GND-র সাথে সংযুক্ত করে (LOW)। তার বিচ্ছিন্ন হলে নিরাপত্তা হিসেবে কোড মোটর চালু রাখতে পারে, তাই তারের ফিজিক্যাল অখণ্ডতা নিশ্চিত করুন।</text>
+      <text x="0" y="72" fill="#93c5fd" font-family="'Segoe UI', sans-serif" font-size="11.5px">৩. <tspan fill="#38bdf8" font-weight="bold">স্ট্যাটাস LED পোলারিটি:</tspan> LED-এর লম্বা পা (Anode) ৩৩০Ω রেজিস্টরের মাধ্যমে GPIO 2-তে এবং খাটো পা (Cathode) GND-তে যুক্ত করুন। রেজিস্টর ছাড়া সরাসরি লাগালে পিন অতিরিক্ত কারেন্টে নষ্ট হতে পারে।</text>
+    </g>
+  </g>
+</svg>
+

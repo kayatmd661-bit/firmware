@@ -1,0 +1,249 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1150 820" width="100%" height="100%">
+  <defs>
+    <style>
+      .bg { fill: #0b1120; }
+      .title { fill: #f8fafc; font-family: 'Segoe UI', system-ui, sans-serif; font-size: 22px; font-weight: bold; }
+      .subtitle { fill: #94a3b8; font-family: 'Segoe UI', system-ui, sans-serif; font-size: 13px; }
+      .box-block { fill: #1e293b; stroke: #334155; stroke-width: 2; rx: 10; }
+      .box-opto { fill: #181124; stroke: #a855f7; stroke-width: 2; rx: 10; }
+      .box-alert { fill: #450a0a; stroke: #ef4444; stroke-width: 1.5; rx: 8; }
+      .badge-crit { fill: #7f1d1d; stroke: #ef4444; stroke-width: 1; rx: 4; }
+      .badge-crit-txt { fill: #fca5a5; font-family: monospace; font-size: 10px; font-weight: bold; }
+      .term-block { fill: #1e293b; stroke: #475569; stroke-width: 1; rx: 4; }
+      .term-txt { fill: #f8fafc; font-family: monospace; font-size: 11px; font-weight: bold; }
+      .pin-name { fill: #38bdf8; font-family: monospace; font-size: 11.5px; font-weight: bold; }
+      .sub-txt { fill: #94a3b8; font-family: 'Segoe UI', system-ui, sans-serif; font-size: 11px; }
+      .chip-body { fill: #0f172a; stroke: #a855f7; stroke-width: 1.5; rx: 6; }
+      .resistor-box { fill: #78350f; stroke: #f59e0b; stroke-width: 1.2; rx: 3; }
+      .resistor-txt { fill: #fef3c7; font-family: monospace; font-size: 10px; font-weight: bold; }
+      .wire-12v { stroke: #f59e0b; stroke-width: 2; fill: none; }
+      .wire-extgnd { stroke: #64748b; stroke-width: 2; fill: none; stroke-dasharray: 4 2; }
+      .wire-3v3 { stroke: #38bdf8; stroke-width: 2; fill: none; }
+      .wire-gpio { stroke: #c084fc; stroke-width: 2.2; fill: none; }
+      .wire-espgnd { stroke: #475569; stroke-width: 2; fill: none; }
+      .barrier { stroke: #ef4444; stroke-width: 2; stroke-dasharray: 6 4; }
+    </style>
+    <marker id="arr-purp" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M 0 1 L 10 5 L 0 9 z" fill="#c084fc" />
+    </marker>
+  </defs>
+
+  <rect width="1150" height="820" class="bg" />
+
+  <!-- Header -->
+  <g transform="translate(40, 35)">
+    <text x="0" y="0" class="title">4-CHANNEL LOCK STATUS OPTOCOUPLERS &amp; 10kΩ PULL-DOWN CIRCUIT</text>
+    <text x="0" y="22" class="subtitle">Galvanic Isolation Circuit for GPI Pins: GPIO 34, 35, 36, 39 (Active HIGH Logic with 10kΩ to GND)</text>
+  </g>
+
+  <!-- Left: External Keypad / Lock Status Input Side (12V Domain) -->
+  <g transform="translate(40, 85)">
+    <rect width="250" height="520" class="box-block" stroke="#f59e0b" />
+    <rect x="0" y="0" width="250" height="42" rx="10" fill="#451a03" stroke="#f59e0b" stroke-width="1.5"/>
+    <text x="15" y="27" fill="#fde68a" font-family="'Segoe UI', sans-serif" font-size="13px" font-weight="bold">KEYPAD / STATUS INPUT (12V)</text>
+
+    <g transform="translate(15, 60)">
+      <!-- Channel 1: Main Lock Status -->
+      <rect x="0" y="0" width="220" height="65" class="term-block" />
+      <text x="10" y="22" fill="#fef3c7" font-family="'Segoe UI', sans-serif" font-size="12px" font-weight="bold">Main Gate Lock Status</text>
+      <text x="10" y="40" class="sub-txt">Signal: +12V Active</text>
+      <text x="10" y="55" class="sub-txt">External Keypad 12V GND</text>
+      <circle cx="205" cy="20" r="5" fill="#f59e0b" />
+      <circle cx="205" cy="45" r="5" fill="#64748b" />
+
+      <!-- Channel 2: BD1 Lock Status -->
+      <rect x="0" y="80" width="220" height="65" class="term-block" />
+      <text x="10" y="102" fill="#fef3c7" font-family="'Segoe UI', sans-serif" font-size="12px" font-weight="bold">BD1 Lock Status (Bed 1)</text>
+      <text x="10" y="120" class="sub-txt">Signal: +12V Active</text>
+      <text x="10" y="135" class="sub-txt">External Keypad 12V GND</text>
+      <circle cx="205" cy="100" r="5" fill="#f59e0b" />
+      <circle cx="205" cy="125" r="5" fill="#64748b" />
+
+      <!-- Channel 3: BLC Lock Status -->
+      <rect x="0" y="160" width="220" height="65" class="term-block" />
+      <text x="10" y="182" fill="#fef3c7" font-family="'Segoe UI', sans-serif" font-size="12px" font-weight="bold">BLC Lock Status (Balcony)</text>
+      <text x="10" y="200" class="sub-txt">Signal: +12V Active</text>
+      <text x="10" y="215" class="sub-txt">External Keypad 12V GND</text>
+      <circle cx="205" cy="180" r="5" fill="#f59e0b" />
+      <circle cx="205" cy="205" r="5" fill="#64748b" />
+
+      <!-- Channel 4: BD2 Lock Status -->
+      <rect x="0" y="240" width="220" height="65" class="term-block" />
+      <text x="10" y="262" fill="#fef3c7" font-family="'Segoe UI', sans-serif" font-size="12px" font-weight="bold">BD2 Lock Status (Bed 2)</text>
+      <text x="10" y="280" class="sub-txt">Signal: +12V Active</text>
+      <text x="10" y="295" class="sub-txt">External Keypad 12V GND</text>
+      <circle cx="205" cy="260" r="5" fill="#f59e0b" />
+      <circle cx="205" cy="285" r="5" fill="#64748b" />
+
+      <!-- Note on Input Current Limiting -->
+      <rect x="0" y="325" width="220" height="110" rx="6" fill="#0f172a" stroke="#d97706" stroke-width="1"/>
+      <text x="10" y="22" fill="#fcd34d" font-family="'Segoe UI', sans-serif" font-size="11px" font-weight="bold">INPUT SERIES RESISTOR:</text>
+      <text x="10" y="44" class="sub-txt">• For 12V DC: 1.0kΩ to 1.5kΩ, 0.25W</text>
+      <text x="10" y="64" class="sub-txt">• Limits LED current to ~10mA</text>
+      <text x="10" y="84" class="sub-txt">• Prevents burning optocoupler LED</text>
+      <text x="10" y="100" class="sub-txt">• [যাচাই প্রয়োজন: ভোল্টেজ রেঞ্জ]</text>
+    </g>
+  </g>
+
+  <!-- Galvanic Isolation Barrier Line -->
+  <line x1="315" y1="85" x2="315" y2="605" class="barrier" />
+  <text x="320" y="105" fill="#fca5a5" font-family="'Segoe UI', sans-serif" font-size="10px" font-weight="bold" transform="rotate(90, 320, 105)">GALVANIC ISOLATION BARRIER</text>
+
+  <!-- Center: 4x PC817 Optocouplers with Pull-down Network -->
+  <g transform="translate(345, 85)">
+    <rect width="450" height="520" class="box-opto" />
+    <rect x="0" y="0" width="450" height="42" rx="10" fill="#2e1065" stroke="#a855f7" stroke-width="1.5"/>
+    <text x="15" y="27" fill="#e9d5ff" font-family="'Segoe UI', sans-serif" font-size="14px" font-weight="bold">PC817 OPTOCOUPLERS + 10kΩ PULL-DOWN RESISTORS</text>
+
+    <!-- 4 Optocoupler Schematics -->
+    <g transform="translate(20, 55)">
+      <!-- Opto 1: MAIN_OPTO_IN -->
+      <g transform="translate(0, 0)">
+        <rect x="0" y="0" width="410" height="95" rx="6" fill="#0f172a" stroke="#475569"/>
+        <!-- Chip representation -->
+        <rect x="130" y="10" width="85" height="75" class="chip-body" />
+        <text x="145" y="52" fill="#c084fc" font-family="monospace" font-size="11px" font-weight="bold">PC817</text>
+        <!-- LED Side (Left) -->
+        <text x="100" y="32" class="sub-txt">1 (A)</text>
+        <text x="100" y="70" class="sub-txt">2 (K)</text>
+        <rect x="15" y="20" width="70" height="22" class="resistor-box" /><text x="24" y="35" class="resistor-txt">1kΩ 1/4W</text>
+        <circle cx="10" cy="31" r="4.5" fill="#f59e0b" />
+        <circle cx="10" cy="67" r="4.5" fill="#64748b" />
+        <!-- Phototransistor Side (Right) -->
+        <text x="220" y="32" class="sub-txt">4 (C)</text>
+        <text x="220" y="70" class="sub-txt">3 (E)</text>
+        <!-- Pull down resistor -->
+        <rect x="290" y="55" width="65" height="22" class="resistor-box" fill="#7f1d1d" stroke="#ef4444"/><text x="298" y="70" class="resistor-txt" fill="#fca5a5">10kΩ</text>
+        <text x="365" y="70" fill="#94a3b8" font-family="monospace" font-size="10px">-> GND</text>
+        <!-- Output to GPIO -->
+        <circle cx="400" cy="40" r="5" fill="#c084fc" />
+        <text x="260" y="32" fill="#38bdf8" font-family="monospace" font-size="11px" font-weight="bold">+3.3V (Pin 4)</text>
+        <text x="365" y="32" fill="#c084fc" font-family="monospace" font-size="11px" font-weight="bold">GPIO 34</text>
+      </g>
+
+      <!-- Opto 2: BD1_OPTO_IN -->
+      <g transform="translate(0, 105)">
+        <rect x="0" y="0" width="410" height="95" rx="6" fill="#0f172a" stroke="#475569"/>
+        <rect x="130" y="10" width="85" height="75" class="chip-body" />
+        <text x="145" y="52" fill="#c084fc" font-family="monospace" font-size="11px" font-weight="bold">PC817</text>
+        <text x="100" y="32" class="sub-txt">1 (A)</text><text x="100" y="70" class="sub-txt">2 (K)</text>
+        <rect x="15" y="20" width="70" height="22" class="resistor-box" /><text x="24" y="35" class="resistor-txt">1kΩ 1/4W</text>
+        <circle cx="10" cy="31" r="4.5" fill="#f59e0b" /><circle cx="10" cy="67" r="4.5" fill="#64748b" />
+        <text x="220" y="32" class="sub-txt">4 (C)</text><text x="220" y="70" class="sub-txt">3 (E)</text>
+        <rect x="290" y="55" width="65" height="22" class="resistor-box" fill="#7f1d1d" stroke="#ef4444"/><text x="298" y="70" class="resistor-txt" fill="#fca5a5">10kΩ</text>
+        <text x="365" y="70" fill="#94a3b8" font-family="monospace" font-size="10px">-> GND</text>
+        <circle cx="400" cy="40" r="5" fill="#c084fc" />
+        <text x="260" y="32" fill="#38bdf8" font-family="monospace" font-size="11px" font-weight="bold">+3.3V</text>
+        <text x="365" y="32" fill="#c084fc" font-family="monospace" font-size="11px" font-weight="bold">GPIO 35</text>
+      </g>
+
+      <!-- Opto 3: BLC_OPTO_IN -->
+      <g transform="translate(0, 210)">
+        <rect x="0" y="0" width="410" height="95" rx="6" fill="#0f172a" stroke="#475569"/>
+        <rect x="130" y="10" width="85" height="75" class="chip-body" />
+        <text x="145" y="52" fill="#c084fc" font-family="monospace" font-size="11px" font-weight="bold">PC817</text>
+        <text x="100" y="32" class="sub-txt">1 (A)</text><text x="100" y="70" class="sub-txt">2 (K)</text>
+        <rect x="15" y="20" width="70" height="22" class="resistor-box" /><text x="24" y="35" class="resistor-txt">1kΩ 1/4W</text>
+        <circle cx="10" cy="31" r="4.5" fill="#f59e0b" /><circle cx="10" cy="67" r="4.5" fill="#64748b" />
+        <text x="220" y="32" class="sub-txt">4 (C)</text><text x="220" y="70" class="sub-txt">3 (E)</text>
+        <rect x="290" y="55" width="65" height="22" class="resistor-box" fill="#7f1d1d" stroke="#ef4444"/><text x="298" y="70" class="resistor-txt" fill="#fca5a5">10kΩ</text>
+        <text x="365" y="70" fill="#94a3b8" font-family="monospace" font-size="10px">-> GND</text>
+        <circle cx="400" cy="40" r="5" fill="#c084fc" />
+        <text x="260" y="32" fill="#38bdf8" font-family="monospace" font-size="11px" font-weight="bold">+3.3V</text>
+        <text x="365" y="32" fill="#c084fc" font-family="monospace" font-size="11px" font-weight="bold">GPIO 36</text>
+      </g>
+
+      <!-- Opto 4: BD2_OPTO_IN -->
+      <g transform="translate(0, 315)">
+        <rect x="0" y="0" width="410" height="95" rx="6" fill="#0f172a" stroke="#475569"/>
+        <rect x="130" y="10" width="85" height="75" class="chip-body" />
+        <text x="145" y="52" fill="#c084fc" font-family="monospace" font-size="11px" font-weight="bold">PC817</text>
+        <text x="100" y="32" class="sub-txt">1 (A)</text><text x="100" y="70" class="sub-txt">2 (K)</text>
+        <rect x="15" y="20" width="70" height="22" class="resistor-box" /><text x="24" y="35" class="resistor-txt">1kΩ 1/4W</text>
+        <circle cx="10" cy="31" r="4.5" fill="#f59e0b" /><circle cx="10" cy="67" r="4.5" fill="#64748b" />
+        <text x="220" y="32" class="sub-txt">4 (C)</text><text x="220" y="70" class="sub-txt">3 (E)</text>
+        <rect x="290" y="55" width="65" height="22" class="resistor-box" fill="#7f1d1d" stroke="#ef4444"/><text x="298" y="70" class="resistor-txt" fill="#fca5a5">10kΩ</text>
+        <text x="365" y="70" fill="#94a3b8" font-family="monospace" font-size="10px">-> GND</text>
+        <circle cx="400" cy="40" r="5" fill="#c084fc" />
+        <text x="260" y="32" fill="#38bdf8" font-family="monospace" font-size="11px" font-weight="bold">+3.3V</text>
+        <text x="365" y="32" fill="#c084fc" font-family="monospace" font-size="11px" font-weight="bold">GPIO 39</text>
+      </g>
+    </g>
+  </g>
+
+  <!-- Right: ESP32 Input-Only Controller Pins -->
+  <g transform="translate(830, 85)">
+    <rect width="280" height="520" class="box-block" />
+    <rect x="0" y="0" width="280" height="42" rx="10" fill="#1e293b" stroke="#38bdf8" stroke-width="1.5"/>
+    <text x="15" y="27" fill="#38bdf8" font-family="'Segoe UI', sans-serif" font-size="13px" font-weight="bold">ESP32 GPI PINS (NO PULLUP)</text>
+
+    <g transform="translate(15, 60)">
+      <!-- GPIO 34 -->
+      <rect x="0" y="0" width="250" height="70" class="term-block" fill="#2d1215" stroke="#ef4444" stroke-width="1.2"/>
+      <text x="10" y="24" class="pin-name" fill="#fca5a5">GPIO 34 (MAIN_OPTO_IN)</text>
+      <text x="10" y="44" class="sub-txt">Input-Only • Active HIGH</text>
+      <text x="10" y="60" fill="#ef4444" font-family="monospace" font-size="10px">Floating without 10kΩ pull-down!</text>
+
+      <!-- GPIO 35 -->
+      <rect x="0" y="85" width="250" height="70" class="term-block" fill="#2d1215" stroke="#ef4444" stroke-width="1.2"/>
+      <text x="10" y="109" class="pin-name" fill="#fca5a5">GPIO 35 (BD1_OPTO_IN)</text>
+      <text x="10" y="129" class="sub-txt">Input-Only • Active HIGH</text>
+      <text x="10" y="145" fill="#ef4444" font-family="monospace" font-size="10px">Floating without 10kΩ pull-down!</text>
+
+      <!-- GPIO 36 -->
+      <rect x="0" y="170" width="250" height="70" class="term-block" fill="#2d1215" stroke="#ef4444" stroke-width="1.2"/>
+      <text x="10" y="194" class="pin-name" fill="#fca5a5">GPIO 36 / VP (BLC_OPTO_IN)</text>
+      <text x="10" y="214" class="sub-txt">Input-Only • Active HIGH</text>
+      <text x="10" y="230" fill="#ef4444" font-family="monospace" font-size="10px">Floating without 10kΩ pull-down!</text>
+
+      <!-- GPIO 39 -->
+      <rect x="0" y="255" width="250" height="70" class="term-block" fill="#2d1215" stroke="#ef4444" stroke-width="1.2"/>
+      <text x="10" y="279" class="pin-name" fill="#fca5a5">GPIO 39 / VN (BD2_OPTO_IN)</text>
+      <text x="10" y="299" class="sub-txt">Input-Only • Active HIGH</text>
+      <text x="10" y="315" fill="#ef4444" font-family="monospace" font-size="10px">Floating without 10kΩ pull-down!</text>
+
+      <!-- Rails -->
+      <rect x="0" y="340" width="250" height="42" class="term-block" />
+      <text x="10" y="366" class="pin-name" fill="#38bdf8">3.3V POWER OUT</text>
+      <circle cx="230" cy="361" r="5" fill="#38bdf8" />
+
+      <rect x="0" y="395" width="250" height="42" class="term-block" />
+      <text x="10" y="421" class="pin-name" fill="#94a3b8">ESP32 LOGIC GND</text>
+      <circle cx="230" cy="416" r="5" fill="#64748b" />
+    </g>
+  </g>
+
+  <!-- WIRING TRACES -->
+  <!-- External Inputs to Opto Inputs -->
+  <path d="M 240 105 L 355 105" class="wire-12v" />
+  <path d="M 240 185 L 355 185" class="wire-12v" />
+  <path d="M 240 265 L 355 265" class="wire-12v" />
+  <path d="M 240 345 L 355 345" class="wire-12v" />
+
+  <!-- Opto Outputs to ESP GPI Pins -->
+  <path d="M 765 95 L 845 95" class="wire-gpio" marker-end="url(#arr-purp)" />
+  <path d="M 765 200 L 845 200" class="wire-gpio" marker-end="url(#arr-purp)" />
+  <path d="M 765 305 L 845 305" class="wire-gpio" marker-end="url(#arr-purp)" />
+  <path d="M 765 410 L 845 410" class="wire-gpio" marker-end="url(#arr-purp)" />
+
+  <!-- 3.3V Rail to Opto Pin 4 -->
+  <path d="M 845 446 L 795 446 L 795 425 L 605 425" class="wire-3v3" />
+
+  <!-- Bottom Detailed Electrical Note Box -->
+  <g transform="translate(40, 625)">
+    <rect width="1070" height="170" class="box-alert" />
+    <g transform="translate(20, 24)">
+      <rect x="0" y="0" width="240" height="24" class="badge-crit"/>
+      <text x="10" y="16" class="badge-crit-txt">CRITICAL HARDWARE REQUIREMENT</text>
+
+      <text x="0" y="46" fill="#fca5a5" font-family="'Segoe UI', sans-serif" font-size="13px" font-weight="bold">কেন GPIO 34, 35, 36 ও 39-এ বাহ্যিক ১০ কিলো-ওহম (10kΩ) পুল-ডাউন রেজিস্টর অপরিহার্য?</text>
+      
+      <text x="0" y="70" fill="#e2e8f0" font-family="'Segoe UI', sans-serif" font-size="11.5px">১. <tspan fill="#fca5a5" font-weight="bold">ইনপুট-অনলি সিলিকন আর্কিটেকচার:</tspan> ESP32 চিপের GPIO 34, 35, 36 (VP) এবং 39 (VN) হলো কেবল ইনপুট পিন (GPI)। এই পিনগুলোর ভেতরে কোনো সফটওয়্যার পুল-আপ বা পুল-ডাউন রেজিস্টর ট্রানজিস্টর নেই (No Internal Pull-up / Pull-down)। pinMode(pin, INPUT_PULLDOWN) কমান্ড এই পিনগুলোতে কাজ করে না।</text>
+
+      <text x="0" y="98" fill="#e2e8f0" font-family="'Segoe UI', sans-serif" font-size="11.5px">২. <tspan fill="#fca5a5" font-weight="bold">ফ্লোটিং পিনের বিপদ (Floating Pin Oscillations):</tspan> যখন অপ্টোকপলার বন্ধ থাকে, তখন এই পিনগুলো সম্পূর্ণ ওপেন-সার্কিট (Floating) অবস্থায় থাকে। বাতাসে থাকা ইলেক্ট্রোম্যাগনেটিক নয়েজের কারণে পিনটি মিলি-সেকেন্ডে হাজার বার HIGH-LOW ফ্লিপ করে, ফলে রিলে ও ড্রপবোল্ট অবিরাম অন-অফ হতে থাকে এবং মেমোরি ক্র্যাশ করে।</text>
+
+      <text x="0" y="126" fill="#e2e8f0" font-family="'Segoe UI', sans-serif" font-size="11.5px">৩. <tspan fill="#86efac" font-weight="bold">সঠিক সমাধান:</tspan> অপ্টোকপলারের এমিটার (Pin 3) এবং ESP32-এর গ্রাউন্ডের (GND) মধ্যে একটি ১০kΩ রেজিস্টর সংযুক্ত করতে হবে। এটি অপ্টোকপলার বন্ধ থাকা অবস্থায় সিগন্যালকে নিখুঁত ০ ভোল্টে (LOW) স্থিতিশীল রাখে।</text>
+    </g>
+  </g>
+</svg>
+
