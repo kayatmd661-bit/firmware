@@ -19,6 +19,8 @@
 // - MQTT reconnect never blocks the hardware loop
 // - Main gate 1500ms/2000ms delays made non-blocking
 // - mDNS: http://jarvis-v4.local/
+// - All local buttons and optocoupler inputs use ACTIVE-LOW event logic
+// - Password optocouplers perform unlock-only actions, never toggles
 // ============================================================
 
 #define WDT_TIMEOUT 3
@@ -51,9 +53,20 @@ const char* DEFAULT_HOSTNAME = "jarvis-v4";
 #define BLC_BTN             23
 #define BLC_OPTO_IN         36
 
-#define BD2_LOCK            5
+#define BD2_LOCK            17 // Changed from GPIO5: avoid ESP32 boot-strapping pin
 #define BD2_BTN             16
 #define BD2_OPTO_IN         39
+
+// ADDITIVE: keypad calling-bell optocoupler inputs (one per lock).
+// Optocoupler transistor pulls GPIO LOW when active; use 3.3V-safe wiring.
+#define MAIN_BELL_OPTO_IN   18
+#define BD1_BELL_OPTO_IN    22
+#define BLC_BELL_OPTO_IN    25
+#define BD2_BELL_OPTO_IN    32
+
+// ADDITIVE: Wi-Fi status LED and onboard BOOT-button factory reset.
+#define WIFI_STATUS_LED      2
+#define FACTORY_RESET_BUTTON 0
 
 // ============================================================
 // OBJECTS
@@ -129,6 +142,16 @@ const unsigned long MQTT_RECONNECT_INTERVAL = 5000;
 bool wifiPortalStarted = false;
 bool wifiConfigSaved = false;
 bool wifiParametersInitialized = false;
+
+// Once Wi-Fi has connected in this boot, a temporary outage must NOT
+// start the setup AP. Continue retrying saved credentials instead.
+bool wifiHasConnectedSinceBoot = false;
+
+// Additive non-blocking status LED / BOOT-button factory-reset state.
+unsigned long lastWifiLedToggle = 0;
+bool wifiLedBlinkState = false;
+unsigned long factoryResetPressStarted = 0;
+bool factoryResetTriggered = false;
 
 unsigned long wifiConnectStarted = 0;
 unsigned long lastWifiReconnectAttempt = 0;
@@ -562,6 +585,163 @@ void mqttService() {
 }
 
 // ============================================================
+// ADDITIVE: KEYPAD CALLING-BELL INPUTS
+// ============================================================
+// A new optocoupler input is assigned to each lock. The original four
+// lock-state/opto inputs and handleLocalInputs() remain untouched.
+// A bell press while unlocked issues LOCK once. A bell press while already
+// locked publishes a non-retained MQTT event for Home Assistant automation.
+// Event topics: jarvis_v4/doorbell/<lock_uid>, payload PRESS.
+struct BellInputState {
+    uint8_t pin;
+    const char* uid;
+    bool rawState;
+    bool stableState;
+    unsigned long rawChangedAt;
+    bool armed;
+};
+
+BellInputState bellInputs[] = {
+    {MAIN_BELL_OPTO_IN, "mainlock", HIGH, HIGH, 0, true},
+    {BD1_BELL_OPTO_IN,  "bd1",      HIGH, HIGH, 0, true},
+    {BLC_BELL_OPTO_IN,  "blc",      HIGH, HIGH, 0, true},
+    {BD2_BELL_OPTO_IN,  "bd2",      HIGH, HIGH, 0, true}
+};
+
+const unsigned long BELL_INPUT_DEBOUNCE_MS = 40;
+const unsigned long BELL_ACTION_GUARD_MS = 1200;
+unsigned long bellLastActionAt[4] = {0, 0, 0, 0};
+
+void initializeBellInputs() {
+    for (size_t i = 0; i < sizeof(bellInputs) / sizeof(bellInputs[0]); i++) {
+        pinMode(bellInputs[i].pin, INPUT_PULLUP);
+        int level = digitalRead(bellInputs[i].pin);
+        bellInputs[i].rawState = level;
+        bellInputs[i].stableState = level;
+        bellInputs[i].rawChangedAt = millis();
+        // Require a release before the first press can trigger.
+        bellInputs[i].armed = (level != LOW);
+    }
+}
+
+bool lockIsCurrentlyLocked(const char* uid) {
+    if (strcmp(uid, "mainlock") == 0) return lockS;
+    if (strcmp(uid, "bd1") == 0) return bd1S;
+    if (strcmp(uid, "blc") == 0) return blcS;
+    if (strcmp(uid, "bd2") == 0) return bd2S;
+    return false;
+}
+
+void handleBellOptoInputs() {
+    unsigned long now = millis();
+
+    for (size_t i = 0; i < sizeof(bellInputs) / sizeof(bellInputs[0]); i++) {
+        BellInputState &input = bellInputs[i];
+        bool reading = (digitalRead(input.pin) == LOW) ? LOW : HIGH;
+
+        if (reading != input.rawState) {
+            input.rawState = reading;
+            input.rawChangedAt = now;
+        }
+
+        if (now - input.rawChangedAt < BELL_INPUT_DEBOUNCE_MS)
+            continue;
+
+        if (input.stableState != input.rawState) {
+            input.stableState = input.rawState;
+
+            if (input.stableState == HIGH) {
+                // Released: re-arm for the next distinct physical click.
+                input.armed = true;
+                continue;
+            }
+
+            // LOW is the active optocoupler signal.
+            if (!input.armed)
+                continue;
+
+            input.armed = false;
+
+            if (bellLastActionAt[i] != 0 &&
+                now - bellLastActionAt[i] < BELL_ACTION_GUARD_MS)
+                continue;
+
+            bellLastActionAt[i] = now;
+
+            if (!lockIsCurrentlyLocked(input.uid)) {
+                // Door is currently unlocked: command its lock exactly once.
+                executeHardwareByID(String(input.uid), "LOCK");
+                Serial.printf("[Doorbell] %s: unlocked -> LOCK command\\n", input.uid);
+            } else {
+                // Door already locked: Home Assistant handles the actual bell.
+                // Publish as an event (retain=false), never as a state.
+                if (client.connected()) {
+                    String eventTopic = String("jarvis_v4/doorbell/") + input.uid;
+                    client.publish(eventTopic.c_str(), "PRESS", false);
+                }
+                Serial.printf("[Doorbell] %s: locked -> HA doorbell event\\n", input.uid);
+            }
+        }
+    }
+}
+
+// ============================================================
+// ADDITIVE: WI-FI STATUS LED AND FACTORY RESET
+// ============================================================
+
+void serviceWiFiStatusLED() {
+    unsigned long now = millis();
+
+    if (WiFi.status() == WL_CONNECTED) {
+        wifiLedBlinkState = true;
+        digitalWrite(WIFI_STATUS_LED, HIGH); // verify LED polarity on the exact board
+        return;
+    }
+
+    if (now - lastWifiLedToggle >= 500) {
+        lastWifiLedToggle = now;
+        wifiLedBlinkState = !wifiLedBlinkState;
+        digitalWrite(WIFI_STATUS_LED, wifiLedBlinkState ? HIGH : LOW);
+    }
+}
+
+void factoryResetAllSettings() {
+    Serial.println("[FactoryReset] Clearing Wi-Fi, MQTT configuration and saved states.");
+
+    // Clear the two Preferences namespaces used by this firmware.
+    preferences.begin("jarvis_config", false);
+    preferences.clear();
+    preferences.end();
+
+    preferences.begin("jarvis_v4_final", false);
+    preferences.clear();
+    preferences.end();
+
+    // Clear Wi-Fi credentials managed by WiFiManager / ESP32 Wi-Fi storage.
+    wm.resetSettings();
+    WiFi.disconnect(true, true);
+
+    delay(250);
+    ESP.restart();
+}
+
+void serviceBootButtonFactoryReset() {
+    if (factoryResetTriggered) return;
+
+    if (digitalRead(FACTORY_RESET_BUTTON) == LOW) {
+        if (factoryResetPressStarted == 0)
+            factoryResetPressStarted = millis();
+
+        if (millis() - factoryResetPressStarted >= 5000) {
+            factoryResetTriggered = true;
+            factoryResetAllSettings();
+        }
+    } else {
+        factoryResetPressStarted = 0;
+    }
+}
+
+// ============================================================
 // WIFI MANAGER CALLBACK
 // ============================================================
 
@@ -797,6 +977,7 @@ void serviceWiFi() {
     // --------------------------------------------------------
     if (WiFi.status() == WL_CONNECTED) {
         wifiConnectStarted = 0;
+        wifiHasConnectedSinceBoot = true;
         return;
     }
 
@@ -826,7 +1007,8 @@ void serviceWiFi() {
         bool portalRetryAllowed =
             (now - lastWifiPortalAttempt >= WIFI_PORTAL_RETRY_INTERVAL);
 
-        if ((connectionTimedOut || wifiConnectStarted == 0) &&
+        if (!wifiHasConnectedSinceBoot &&
+            (connectionTimedOut || wifiConnectStarted == 0) &&
             portalRetryAllowed) {
 
             lastWifiPortalAttempt = now;
@@ -1162,64 +1344,157 @@ void startWebServer() {
 }
 
 // ============================================================
-// BUTTON / OPTO PROCESSING
+// LOCAL BUTTON + PASSWORD INPUT PROCESSING — ACTIVE LOW
 // ============================================================
+// All local buttons and all optocoupler inputs use the same logical
+// convention: idle HIGH, active LOW (signal pulled to GND).
+// GPIO34/35/36/39 have no internal pull-up; external pull-up resistors
+// must be installed according to the verified optocoupler output circuit.
+
+struct DebouncedInput {
+    uint8_t pin;
+    uint8_t activeLevel;
+    uint8_t rawLevel;
+    uint8_t stableLevel;
+    unsigned long rawChangedAt;
+    bool armed;
+};
+
+// Explicit prototypes prevent the Arduino .ino preprocessor from generating
+// prototypes for this custom type before DebouncedInput is declared.
+void initializeDebouncerArray(DebouncedInput *inputs, size_t count);
+bool inputActivated(DebouncedInput &in, unsigned long now,
+                    unsigned long debounceMs);
+
+const unsigned long LOCAL_INPUT_DEBOUNCE_MS = 60;
+const unsigned long LOCAL_INPUT_GUARD_MS = 350;
+unsigned long lastLocalActionAt = 0;
+
+// Only the four physical buttons belong to this array. Password optocouplers
+// are handled independently and can never be mistaken for button toggles.
+DebouncedInput localInputs[] = {
+    {MAIN_GATE_BTN, LOW, HIGH, HIGH, 0, true},
+    {BD1_BTN,       LOW, HIGH, HIGH, 0, true},
+    {BLC_BTN,       LOW, HIGH, HIGH, 0, true},
+    {BD2_BTN,       LOW, HIGH, HIGH, 0, true}
+};
+
+void initializeDebouncerArray(DebouncedInput *inputs, size_t count) {
+    unsigned long now = millis();
+    for (size_t i = 0; i < count; ++i) {
+        uint8_t level = (uint8_t)digitalRead(inputs[i].pin);
+        inputs[i].rawLevel = level;
+        inputs[i].stableLevel = level;
+        inputs[i].rawChangedAt = now;
+        // Require stable inactive HIGH before accepting the first LOW event.
+        inputs[i].armed = (level != inputs[i].activeLevel);
+    }
+}
+
+void initializeLocalInputDebouncers() {
+    initializeDebouncerArray(localInputs,
+        sizeof(localInputs) / sizeof(localInputs[0]));
+}
+
+bool inputActivated(DebouncedInput &in, unsigned long now,
+                    unsigned long debounceMs) {
+    uint8_t reading = (uint8_t)digitalRead(in.pin);
+    if (reading != in.rawLevel) {
+        in.rawLevel = reading;
+        in.rawChangedAt = now;
+    }
+
+    if ((unsigned long)(now - in.rawChangedAt) >= debounceMs &&
+        in.stableLevel != in.rawLevel) {
+        in.stableLevel = in.rawLevel;
+        if (in.stableLevel != in.activeLevel) {
+            in.armed = true; // Re-arm only after stable release/HIGH.
+        }
+    }
+
+    if (in.stableLevel == in.activeLevel && in.armed) {
+        in.armed = false;
+        return true;
+    }
+    return false;
+}
 
 void handleLocalInputs() {
-    static unsigned long lastBtnTrigger = 0;
+    unsigned long now = millis();
+    bool mainButtonEvent = inputActivated(localInputs[0], now, LOCAL_INPUT_DEBOUNCE_MS);
+    bool bd1ButtonEvent  = inputActivated(localInputs[1], now, LOCAL_INPUT_DEBOUNCE_MS);
+    bool blcButtonEvent  = inputActivated(localInputs[2], now, LOCAL_INPUT_DEBOUNCE_MS);
+    bool bd2ButtonEvent  = inputActivated(localInputs[3], now, LOCAL_INPUT_DEBOUNCE_MS);
 
-    if (millis() - lastBtnTrigger <= 350)
-        return;
+    if ((unsigned long)(now - lastLocalActionAt) < LOCAL_INPUT_GUARD_MS) return;
 
-    if (digitalRead(MAIN_GATE_BTN) == LOW ||
-        digitalRead(MAIN_OPTO_IN) == HIGH) {
-
-        delay(50);
-
-        if (digitalRead(MAIN_GATE_BTN) == LOW ||
-            digitalRead(MAIN_OPTO_IN) == HIGH) {
-
-            executeHardwareByID("maingate", gateS ? "OFF" : "ON");
-            lastBtnTrigger = millis();
-        }
+    // Preserve the existing button behavior exactly: main gate runs its gate
+    // sequence; the three door buttons toggle their respective lock states.
+    if (mainButtonEvent) {
+        executeHardwareByID("maingate", gateS ? "OFF" : "ON");
+        lastLocalActionAt = now;
+    } else if (bd1ButtonEvent) {
+        executeHardwareByID("bd1", bd1S ? "UNLOCK" : "LOCK");
+        lastLocalActionAt = now;
+    } else if (blcButtonEvent) {
+        executeHardwareByID("blc", blcS ? "UNLOCK" : "LOCK");
+        lastLocalActionAt = now;
+    } else if (bd2ButtonEvent) {
+        executeHardwareByID("bd2", bd2S ? "UNLOCK" : "LOCK");
+        lastLocalActionAt = now;
     }
+}
 
-    if (digitalRead(BD1_BTN) == LOW ||
-        digitalRead(BD1_OPTO_IN) == HIGH) {
+// Four password optocouplers: ACTIVE LOW, explicit unlock-only actions.
+// No password input is merged with a local button or the gate motor logic.
+DebouncedInput passwordInputs[] = {
+    {MAIN_OPTO_IN, LOW, HIGH, HIGH, 0, true},
+    {BD1_OPTO_IN,  LOW, HIGH, HIGH, 0, true},
+    {BLC_OPTO_IN,  LOW, HIGH, HIGH, 0, true},
+    {BD2_OPTO_IN,  LOW, HIGH, HIGH, 0, true}
+};
+const char* passwordLockUIDs[] = {"mainlock", "bd1", "blc", "bd2"};
+const unsigned long PASSWORD_INPUT_DEBOUNCE_MS = 60;
+const unsigned long PASSWORD_ACTION_GUARD_MS = 350;
+unsigned long passwordLastActionAt[4] = {0, 0, 0, 0};
 
-        delay(50);
-
-        if (digitalRead(BD1_BTN) == LOW ||
-            digitalRead(BD1_OPTO_IN) == HIGH) {
-
-            executeHardwareByID("bd1", bd1S ? "UNLOCK" : "LOCK");
-            lastBtnTrigger = millis();
-        }
+void initializePasswordInputs() {
+    // GPIO34/35/36/39 cannot use ESP32 internal pull-ups. External pull-ups
+    // must hold idle HIGH; the optocoupler must pull the input to GND on active.
+    for (size_t i = 0; i < sizeof(passwordInputs) / sizeof(passwordInputs[0]); ++i) {
+        pinMode(passwordInputs[i].pin, INPUT);
     }
+    initializeDebouncerArray(passwordInputs,
+        sizeof(passwordInputs) / sizeof(passwordInputs[0]));
+}
 
-    if (digitalRead(BLC_BTN) == LOW ||
-        digitalRead(BLC_OPTO_IN) == HIGH) {
+bool passwordLockIsLocked(const char* uid) {
+    if (strcmp(uid, "mainlock") == 0) return lockS;
+    if (strcmp(uid, "bd1") == 0) return bd1S;
+    if (strcmp(uid, "blc") == 0) return blcS;
+    if (strcmp(uid, "bd2") == 0) return bd2S;
+    return false;
+}
 
-        delay(50);
+void handlePasswordOptoInputs() {
+    unsigned long now = millis();
+    for (size_t i = 0; i < sizeof(passwordInputs) / sizeof(passwordInputs[0]); ++i) {
+        if (!inputActivated(passwordInputs[i], now, PASSWORD_INPUT_DEBOUNCE_MS))
+            continue;
 
-        if (digitalRead(BLC_BTN) == LOW ||
-            digitalRead(BLC_OPTO_IN) == HIGH) {
+        if (passwordLastActionAt[i] != 0 &&
+            now - passwordLastActionAt[i] < PASSWORD_ACTION_GUARD_MS)
+            continue;
+        passwordLastActionAt[i] = now;
 
-            executeHardwareByID("blc", blcS ? "UNLOCK" : "LOCK");
-            lastBtnTrigger = millis();
-        }
-    }
-
-    if (digitalRead(BD2_BTN) == LOW ||
-        digitalRead(BD2_OPTO_IN) == HIGH) {
-
-        delay(50);
-
-        if (digitalRead(BD2_BTN) == LOW ||
-            digitalRead(BD2_OPTO_IN) == HIGH) {
-
-            executeHardwareByID("bd2", bd2S ? "UNLOCK" : "LOCK");
-            lastBtnTrigger = millis();
+        const char* uid = passwordLockUIDs[i];
+        if (passwordLockIsLocked(uid)) {
+            // Explicit UNLOCK: never use a toggle and never issue LOCK here.
+            executeHardwareByID(String(uid), "UNLOCK");
+            Serial.printf("[Password] %s: locked -> UNLOCK command\n", uid);
+        } else {
+            // Already unlocked: intentionally do nothing.
+            Serial.printf("[Password] %s: already unlocked; no action\n", uid);
         }
     }
 }
@@ -1231,6 +1506,11 @@ void handleLocalInputs() {
 void setup() {
     Serial.begin(115200);
     delay(200);
+
+    // ADDITIVE: onboard LED and BOOT-button factory-reset monitoring.
+    pinMode(WIFI_STATUS_LED, OUTPUT);
+    digitalWrite(WIFI_STATUS_LED, LOW);
+    pinMode(FACTORY_RESET_BUTTON, INPUT_PULLUP);
 
     // --------------------------------------------------------
     // Watchdog
@@ -1253,7 +1533,7 @@ void setup() {
     // --------------------------------------------------------
     // OUTPUT PINS - UNCHANGED
     // --------------------------------------------------------
-    int outPins[] = {12, 13, 14, 21, 19, 5};
+    int outPins[] = {12, 13, 14, 21, 19, BD2_LOCK};
 
     for (int p : outPins)
         pinMode(p, OUTPUT);
@@ -1271,15 +1551,21 @@ void setup() {
     // --------------------------------------------------------
     // INPUT PINS - UNCHANGED
     // --------------------------------------------------------
-    int inPins[] = {33, 27, 26, 4, 23, 16};
+    int inPins[] = {MAIN_GATE_BTN, LIMIT_OPEN, LIMIT_CLOSE,
+                    BD1_BTN, BLC_BTN, BD2_BTN};
 
     for (int p : inPins)
         pinMode(p, INPUT_PULLUP);
 
-    pinMode(MAIN_OPTO_IN, INPUT);
-    pinMode(BD1_OPTO_IN, INPUT);
-    pinMode(BLC_OPTO_IN, INPUT);
-    pinMode(BD2_OPTO_IN, INPUT);
+    // Password optocouplers are independent ACTIVE-LOW inputs. GPIO34/35/36/39
+    // require external pull-ups because these ESP32 pins have no internal pulls.
+    initializePasswordInputs();
+
+    // Initialize only the four local-button edge detectors.
+    initializeLocalInputDebouncers();
+
+    // Bell optocouplers remain independent ACTIVE-LOW inputs.
+    initializeBellInputs();
 
     // --------------------------------------------------------
     // WiFiManager parameters
@@ -1338,6 +1624,10 @@ void loop() {
     // --------------------------------------------------------
     serviceWiFi();
 
+    // ADDITIVE: local status/reset functions work without Wi-Fi.
+    serviceWiFiStatusLED();
+    serviceBootButtonFactoryReset();
+
     // --------------------------------------------------------
     // mDNS
     // --------------------------------------------------------
@@ -1358,9 +1648,15 @@ void loop() {
     handleMainGateMotor();
 
     // --------------------------------------------------------
-    // Local buttons + optocouplers
+    // Local physical buttons (existing behavior preserved).
     // --------------------------------------------------------
     handleLocalInputs();
+
+    // Password optocouplers: independent, ACTIVE-LOW, unlock-only.
+    handlePasswordOptoInputs();
+
+    // Independent bell optocouplers: existing behavior preserved.
+    handleBellOptoInputs();
 
     // --------------------------------------------------------
     // Dashboard
