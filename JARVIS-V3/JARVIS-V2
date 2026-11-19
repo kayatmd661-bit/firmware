@@ -1,1 +1,2433 @@
 
+/*
+ * JARVIS AC FAN + WATER CONTROLLER
+ * ESP32 / Arduino-ESP32 3.x
+ *
+ * IMPORTANT:
+ * - Fan speed is AC phase-angle TRIAC control, NOT PWM.
+ * - ESP32 is connected only to the LOW-VOLTAGE isolated side of the
+ *   zero-cross detector and optotriac drivers.
+ * - Use a RANDOM-PHASE optotriac such as MOC3021/MOC3023.
+ * - Do NOT use MOC3062/MOC3063 for phase-angle control.
+ * - Mains-side TRIAC/fuse/MOV/snubber/heatsink/creepage must be designed
+ *   for the actual fan current and mains voltage by a qualified person.
+ *
+ * Preserved application functions from the supplied firmware:
+ * - 4 fans / ON-OFF / 0-100% speed persistence
+ * - MQTT topics
+ * - Home Assistant MQTT Discovery
+ * - DHT22 / BMP280 / PIR / ultrasonic water level / PZEM
+ * - automatic water motor
+ * - Preferences/NVS with non-destructive firmware migration; only physical factory reset erases NVS
+ * - OTA
+ * - WDT
+ * - WiFiManager
+ *
+ * Changed only where required:
+ * - LEDC PWM fan control -> zero-cross synchronized phase-angle TRIAC control
+ * - blocking WiFiManager/MQTT reconnect -> non-blocking operation
+ * - hard-coded MQTT settings -> Preferences + dashboard configuration
+ * - modernized HA discovery payloads
+ * - WiFiManager portal is available only when no saved credentials exist (fresh/factory-reset setup)
+ * - saved credentials retry indefinitely; connection failure never opens the portal
+ */
+
+#include <WiFi.h>
+#include <WebServer.h>
+#include <WiFiManager.h>
+#include <PubSubClient.h>
+#include <ArduinoOTA.h>
+#include <Preferences.h>
+#include <nvs_flash.h>
+#include <Wire.h>
+#include <Adafruit_BMP280.h>
+#include <PZEM004Tv30.h>
+#include <DHT.h>
+#include <esp_task_wdt.h>
+#include "esp_system.h"
+#include "freertos/FreeRTOS.h"
+#include "esp_wifi.h"
+#include "esp_timer.h"
+#include "soc/gpio_struct.h"
+
+// ========================= PIN CONFIGURATION =========================
+
+// Existing application pins
+#define PZEM_RX_PIN 16
+#define PZEM_TX_PIN 17
+
+#define FAN1_TRIAC_PIN 13
+#define FAN2_TRIAC_PIN 14
+#define FAN3_TRIAC_PIN 18
+#define FAN4_TRIAC_PIN 19
+
+// Four isolated zero-cross detector inputs.
+// GPIO34-36 are input-only; use an external bias as required by the
+// particular zero-cross module. GPIO23 is a normal digital input.
+#define FAN1_ZC_PIN 23
+#define FAN2_ZC_PIN 34
+#define FAN3_ZC_PIN 35
+#define FAN4_ZC_PIN 36
+
+#define DHTPIN 27
+#define PIRPIN 26
+#define TRIG_PIN 32
+#define ECHO_PIN 33
+#define MOTOR_PIN 25
+#define STATUS_LED_PIN 2       // Solid ON when Wi-Fi has a valid IP; blink when Wi-Fi is disconnected
+#define FACTORY_RESET_PIN 0    // BOOT button; hold 8 seconds after boot
+#define DHTTYPE DHT22
+
+#define I2C_SDA_PIN 21
+#define I2C_SCL_PIN 22
+
+
+// ========================= AC CONTROL ================================
+
+#define MAINS_FREQUENCY_HZ 50
+#define HALF_CYCLE_US (1000000UL / (2UL * MAINS_FREQUENCY_HZ))
+
+// 50 us scheduler tick: 20,000 interrupts/second instead of 50,000.
+// The ISR uses direct GPIO registers and performs no String/network work.
+#define TRIAC_TIMER_TICK_US 50
+
+// Gate pulse width. Tune for the actual optotriac + power TRIAC.
+#define TRIAC_GATE_PULSE_US 120
+
+// The following define the usable phase-angle window.
+// 100% is close to the beginning of the half cycle.
+// 1% is close to the end, but a safety margin is retained.
+#define TRIAC_MIN_FIRE_DELAY_US TRIAC_EARLY_MARGIN_US
+#define TRIAC_MAX_FIRE_DELAY_US (HALF_CYCLE_US - TRIAC_LATE_MARGIN_US)
+
+// Minimum user speed at which a fan is allowed to fire.
+// 0 = off. Speeds below this are clamped to this value.
+#define FAN_MIN_SPEED_DEFAULT 20
+
+// ========================= UNIVERSAL ZC / OPTO ADAPTER =============
+// The firmware does NOT depend on one specific detector IC.  Each fan can
+// select a detector profile below and the selection is stored in NVS.
+//
+// APPROVED ZERO-CROSS DETECTOR CLASSES / PARTS:
+//   ZC_PROFILE_AC_OPTO_RISING:
+//     H11AA1, IL250, IL252, LTV-814/LTV-824/LTV-844 (AC-input versions),
+//     when wired as the standard isolated phototransistor + pull-up detector.
+//   ZC_PROFILE_AC_OPTO_FALLING:
+//     Same AC-input optocoupler family when the low-voltage interface is
+//     intentionally inverted.
+//   ZC_PROFILE_MODULE_RISING / FALLING:
+//     Commercial isolated zero-cross modules whose OUTPUT is ESP32-safe
+//     digital HIGH/LOW.
+//   ZC_PROFILE_PC817_RISING / FALLING:
+//     PC817-based isolated AC detector circuits using the proper mains-side
+//     rectifier/resistor network. PC817 itself is NOT connected directly to AC.
+//
+// IMPORTANT: a bare optocoupler is not automatically a zero-cross detector.
+// The mains-side current limiting/rectifier and the isolated low-voltage
+// pull-up/output stage must match the selected part.
+//
+// TRIAC DRIVER OPTOCOUPLER LIST (RANDOM-PHASE ONLY):
+//   MOC3020/MOC3021/MOC3022/MOC3023
+//   MOC3051/MOC3052
+//   Vishay VOT8121 family / equivalent RANDOM-PHASE phototriac driver
+// Do NOT use zero-cross phototriac drivers such as MOC306x/VOT8024 for
+// phase-angle firing. They are suitable for zero-cross switching, not this
+// speed-control method.
+
+// For 120/127 VAC, MOC302x-class parts are suitable within their ratings.
+// For 220/230/240 VAC, use a driver/power TRIAC combination with adequate
+// repetitive blocking voltage margin for the actual mains. MOC3051/3052 or
+// an equivalent 600/800 V random-phase driver is a safer listed choice.
+
+enum ZcEdgeMode : uint8_t {
+  ZC_EDGE_RISING = 0,
+  ZC_EDGE_FALLING = 1
+};
+
+enum ZcProfile : uint8_t {
+  ZC_PROFILE_AC_OPTO_RISING = 0,
+  ZC_PROFILE_AC_OPTO_FALLING = 1,
+  ZC_PROFILE_MODULE_RISING = 2,
+  ZC_PROFILE_MODULE_FALLING = 3,
+  ZC_PROFILE_PC817_RISING = 4,
+  ZC_PROFILE_PC817_FALLING = 5
+};
+
+// Default hardware profile for each fan. Change from the dashboard after
+// first boot; the values are persisted in Preferences/NVS.
+#define ZC_DEFAULT_PROFILE_FAN1 ZC_PROFILE_AC_OPTO_RISING
+#define ZC_DEFAULT_PROFILE_FAN2 ZC_PROFILE_AC_OPTO_RISING
+#define ZC_DEFAULT_PROFILE_FAN3 ZC_PROFILE_AC_OPTO_RISING
+#define ZC_DEFAULT_PROFILE_FAN4 ZC_PROFILE_AC_OPTO_RISING
+
+#define ZC_MIN_EDGE_SPACING_US 2500UL
+#define ZC_TIMING_OFFSET_US_DEFAULT 0
+#define AUTO_MEASURE_MAINS_FREQUENCY true
+#define ZC_MIN_HALF_CYCLE_US 7000UL
+#define ZC_MAX_HALF_CYCLE_US 12000UL
+#define TRIAC_EARLY_MARGIN_US 250
+#define TRIAC_LATE_MARGIN_US 700
+
+// Independent pump safety cutoff. Adjust only after validating the pump/tank.
+#define MOTOR_MAX_CONTINUOUS_RUN_MS (20UL * 60UL * 1000UL)
+
+// ========================= OBJECTS ==================================
+
+PZEM004Tv30 pzem(Serial2, PZEM_RX_PIN, PZEM_TX_PIN);
+WiFiClient espClient;
+PubSubClient client(espClient);
+Preferences pref;
+DHT dht(DHTPIN, DHTTYPE);
+Adafruit_BMP280 bmp;
+WebServer server(80);
+WiFiManager wm;
+
+// ========================= CONFIGURATION =============================
+
+String mqttHost = "homeassistant.local";
+uint16_t mqttPort = 1883;
+String mqttUser = "esp32";
+String mqttPass = "12345678";
+
+String haHost = "";
+uint16_t haPort = 8123;
+String haName = "Jarvis Fan System";
+String haDeviceId = "jarvis_fan_system_final";
+
+String fanNames[4] = {
+  "স্মার্ট ফ্যান ১",
+  "স্মার্ট ফ্যান ২",
+  "স্মার্ট ফ্যান ৩",
+  "স্মার্ট ফ্যান ৪"
+};
+
+String fanUIDs[4] = {"sf1", "sf2", "sf3", "sf4"};
+
+int fanMinSpeed = FAN_MIN_SPEED_DEFAULT;
+int fanMaxSpeed = 100;
+int fanStartupSpeed = 100;
+
+int tank_empty_dist = 110;
+int tank_full_dist = 10;
+int motor_start_pct = 15;
+int motor_stop_pct = 98;
+
+uint8_t zcProfile[4] = {
+  ZC_DEFAULT_PROFILE_FAN1,
+  ZC_DEFAULT_PROFILE_FAN2,
+  ZC_DEFAULT_PROFILE_FAN3,
+  ZC_DEFAULT_PROFILE_FAN4
+};
+int32_t zcTimingOffsetUs[4] = {
+  ZC_TIMING_OFFSET_US_DEFAULT,
+  ZC_TIMING_OFFSET_US_DEFAULT,
+  ZC_TIMING_OFFSET_US_DEFAULT,
+  ZC_TIMING_OFFSET_US_DEFAULT
+};
+
+bool configPortalRunning = false;
+bool shouldSaveConfig = false;
+bool restartRequested = false;
+bool wifiPortalParametersAdded = false;
+bool wifiPortalManual = false;
+bool dashboardServerRunning = false;
+bool wifiPortalStartRequested = false;
+unsigned long wifiDisconnectedSince = 0;
+unsigned long lastWiFiReconnectAttempt = 0;
+unsigned long lastPortalStartAttempt = 0;
+uint8_t wifiReconnectAttempts = 0;
+static const unsigned long WIFI_RECONNECT_INTERVAL_MS = 30000UL;
+
+// GPIO2 status LED and factory-reset state.
+unsigned long lastStatusLedToggle = 0;
+bool statusLedState = false;
+unsigned long factoryResetButtonPressedAt = 0;
+bool factoryResetRequested = false;
+unsigned long factoryResetRequestAt = 0;
+bool factoryResetExecuting = false;
+bool otaStarted = false;
+
+// Persisted provisioning lock: once the controller has obtained an IP,
+// Wi-Fi setup is unavailable until the physical BOOT-button factory reset.
+bool wifiEverConnected = false;
+volatile uint8_t wifiEventDisconnectReason = 0;
+volatile bool wifiDisconnectEventPending = false;
+volatile bool wifiLostIpEventPending = false;
+
+unsigned long motorRunStartedAt = 0;
+bool motorRunTimeoutLatched = false;
+// WiFiManager's standard portal reports a successful save only after its
+// station connection attempt succeeds. We additionally require GOT_IP and
+// an SSID match before committing the extra application settings.
+bool wifiSaveCheckPending = false;
+bool wifiCredentialsSubmitted = false;
+volatile bool wifiGotIpEvent = false;
+unsigned long wifiSaveCheckAt = 0;
+static const unsigned long WIFI_SAVE_VERIFY_TIMEOUT_MS = 25000UL;
+
+// WiFiManager keeps pointers to custom parameters. These objects MUST live
+// for the entire lifetime of WiFiManager; local stack parameters are unsafe.
+WiFiManagerParameter *wm_mqtt_host = nullptr;
+WiFiManagerParameter *wm_mqtt_port = nullptr;
+WiFiManagerParameter *wm_mqtt_user = nullptr;
+WiFiManagerParameter *wm_mqtt_pass = nullptr;
+WiFiManagerParameter *wm_ha_host = nullptr;
+WiFiManagerParameter *wm_ha_port = nullptr;
+WiFiManagerParameter *wm_ha_name = nullptr;
+WiFiManagerParameter *wm_ha_id = nullptr;
+
+// ========================= STATE =====================================
+
+volatile int fanSpeed[4] = {0, 0, 0, 0};
+volatile bool fanEnabled[4] = {false, false, false, false};
+volatile bool zcSeen[4] = {false, false, false, false};
+volatile uint32_t lastZcUs[4] = {0, 0, 0, 0};
+volatile uint32_t fireAtUs[4] = {0, 0, 0, 0};
+volatile uint32_t gateOffAtUs[4] = {0, 0, 0, 0};
+volatile bool gateHigh[4] = {false, false, false, false};
+volatile bool firePending[4] = {false, false, false, false};
+volatile uint32_t previousZcUs[4] = {0, 0, 0, 0};
+volatile bool zcHavePeriod[4] = {false, false, false, false};
+volatile uint32_t measuredHalfCycleUs[4] = {HALF_CYCLE_US, HALF_CYCLE_US, HALF_CYCLE_US, HALF_CYCLE_US};
+portMUX_TYPE triacMux = portMUX_INITIALIZER_UNLOCKED;
+
+// Coalesce rapid slider/MQTT speed updates into one NVS write per fan.
+bool fanSavePending[4] = {false, false, false, false};
+unsigned long fanSaveAt[4] = {0, 0, 0, 0};
+
+hw_timer_t *triacTimer = nullptr;
+bool triacTimerReady = false;
+
+float lastTemp = -1000;
+float lastHum = -1000;
+float lastVolt = -1000;
+float lastWater = -1000;
+float lastPressure = -1000;
+bool bmpAvailable = false;
+float lastCurrent = -1000;
+float lastPower = -1000;
+
+bool lastPir = false;
+bool lastMotorState = false;
+bool waterLevelValid = false;
+unsigned long lastWaterReadingAt = 0;
+
+unsigned long lastSensorRead = 0;
+unsigned long lastMqttAttempt = 0;
+unsigned long lastWiFiCheck = 0;
+unsigned long lastDiscovery = 0;
+bool zcStatePublishPending = true;
+bool discoveryPublishFailed = false;
+
+const char *availability_topic = "jarvis/status/availability";
+
+// ========================= ISR ======================================
+
+static inline uint32_t elapsedUs(uint32_t now, uint32_t then) {
+  return (uint32_t)(now - then);
+}
+
+ZcEdgeMode zcProfileEdge(uint8_t profile) {
+  switch (profile) {
+    case ZC_PROFILE_AC_OPTO_FALLING:
+    case ZC_PROFILE_MODULE_FALLING:
+    case ZC_PROFILE_PC817_FALLING:
+      return ZC_EDGE_FALLING;
+    default:
+      return ZC_EDGE_RISING;
+  }
+}
+
+const char* zcProfileName(uint8_t profile) {
+  switch (profile) {
+    case ZC_PROFILE_AC_OPTO_RISING:  return "AC-OPTO/RISING";
+    case ZC_PROFILE_AC_OPTO_FALLING: return "AC-OPTO/FALLING";
+    case ZC_PROFILE_MODULE_RISING:   return "MODULE/RISING";
+    case ZC_PROFILE_MODULE_FALLING:  return "MODULE/FALLING";
+    case ZC_PROFILE_PC817_RISING:    return "PC817/RISING";
+    case ZC_PROFILE_PC817_FALLING:   return "PC817/FALLING";
+    default: return "UNKNOWN";
+  }
+}
+
+uint8_t defaultZcProfile(uint8_t idx) {
+  switch (idx) {
+    case 0: return ZC_DEFAULT_PROFILE_FAN1;
+    case 1: return ZC_DEFAULT_PROFILE_FAN2;
+    case 2: return ZC_DEFAULT_PROFILE_FAN3;
+    default: return ZC_DEFAULT_PROFILE_FAN4;
+  }
+}
+
+void zcISR0();
+void zcISR1();
+void zcISR2();
+void zcISR3();
+static inline void IRAM_ATTR triacPinWriteFast(uint8_t idx, bool high);
+
+// Track which GPIO interrupts have actually been attached. Calling
+// detachInterrupt() on a never-attached GPIO can trigger
+// gpio_isr_handler_remove / ESP_ERR_INVALID_STATE on ESP32.
+bool zcInterruptAttached[4] = {false, false, false, false};
+
+void applyZcInterrupts() {
+  const int pins[4] = {FAN1_ZC_PIN, FAN2_ZC_PIN, FAN3_ZC_PIN, FAN4_ZC_PIN};
+  void (*isrs[4])() = {zcISR0, zcISR1, zcISR2, zcISR3};
+
+  for (int i = 0; i < 4; i++) {
+    const int irqPin = digitalPinToInterrupt(pins[i]);
+    if (zcInterruptAttached[i]) {
+      detachInterrupt(irqPin);
+      zcInterruptAttached[i] = false;
+    }
+    int mode = (zcProfileEdge(zcProfile[i]) == ZC_EDGE_FALLING) ? FALLING : RISING;
+    attachInterrupt(irqPin, isrs[i], mode);
+    zcInterruptAttached[i] = true;
+    portENTER_CRITICAL(&triacMux);
+    previousZcUs[i] = 0;
+    zcSeen[i] = false;
+    zcHavePeriod[i] = false;
+    firePending[i] = false;
+    gateHigh[i] = false;
+    triacPinWriteFast(i, false);
+    portEXIT_CRITICAL(&triacMux);
+  }
+}
+
+void configureZcInput(uint8_t idx) {
+  if (idx > 3) return;
+  const int pins[4] = {FAN1_ZC_PIN, FAN2_ZC_PIN, FAN3_ZC_PIN, FAN4_ZC_PIN};
+  // The detector output must provide its own safe pull-up when using
+  // ESP32 input-only GPIO34-36. For normal GPIOs an external pull-up is
+  // still recommended for optocoupler collector outputs.
+  pinMode(pins[idx], INPUT);
+}
+
+void IRAM_ATTR zcEvent(uint8_t idx) {
+  if (idx > 3) return;
+  portENTER_CRITICAL_ISR(&triacMux);
+  uint32_t now = micros();
+
+  if (previousZcUs[idx] != 0) {
+    uint32_t period = (uint32_t)(now - previousZcUs[idx]);
+    if (period < ZC_MIN_EDGE_SPACING_US) {
+      portEXIT_CRITICAL_ISR(&triacMux);
+      return;
+    }
+    if (AUTO_MEASURE_MAINS_FREQUENCY && period >= ZC_MIN_HALF_CYCLE_US && period <= ZC_MAX_HALF_CYCLE_US) {
+      measuredHalfCycleUs[idx] = (measuredHalfCycleUs[idx] * 3UL + period) / 4UL;
+      zcHavePeriod[idx] = true;
+    }
+  }
+
+  previousZcUs[idx] = now;
+  lastZcUs[idx] = now;
+  zcSeen[idx] = true;
+
+  if (fanEnabled[idx]) {
+    uint32_t halfCycle = AUTO_MEASURE_MAINS_FREQUENCY ? measuredHalfCycleUs[idx] : HALF_CYCLE_US;
+    uint32_t minDelay = TRIAC_EARLY_MARGIN_US;
+    uint32_t maxDelay = (halfCycle > TRIAC_LATE_MARGIN_US) ? halfCycle - TRIAC_LATE_MARGIN_US : halfCycle / 2;
+    if (maxDelay <= minDelay) maxDelay = minDelay + 100;
+    int speed = fanSpeed[idx];
+    speed = speed < 1 ? 1 : (speed > 100 ? 100 : speed);
+    uint32_t delayUs = minDelay + ((uint32_t)(100 - speed) * (maxDelay - minDelay)) / 99UL;
+    int32_t corrected = (int32_t)delayUs + zcTimingOffsetUs[idx];
+    // Re-clamp AFTER offset so a positive offset cannot spill into the next half-cycle.
+    if (corrected < (int32_t)minDelay) corrected = (int32_t)minDelay;
+    if (corrected > (int32_t)maxDelay) corrected = (int32_t)maxDelay;
+    fireAtUs[idx] = now + (uint32_t)corrected;
+    firePending[idx] = true;
+  } else {
+    firePending[idx] = false;
+  }
+  portEXIT_CRITICAL_ISR(&triacMux);
+}
+
+void IRAM_ATTR zcISR0() { zcEvent(0); }
+void IRAM_ATTR zcISR1() { zcEvent(1); }
+void IRAM_ATTR zcISR2() { zcEvent(2); }
+void IRAM_ATTR zcISR3() { zcEvent(3); }
+
+static inline void IRAM_ATTR triacPinWriteFast(uint8_t idx, bool high) {
+  // All four TRIAC outputs are GPIO13/14/18/19 (GPIO bank 0).
+  const uint32_t mask = 1UL << (idx == 0 ? FAN1_TRIAC_PIN :
+                               idx == 1 ? FAN2_TRIAC_PIN :
+                               idx == 2 ? FAN3_TRIAC_PIN : FAN4_TRIAC_PIN);
+  if (high) GPIO.out_w1ts = mask;
+  else GPIO.out_w1tc = mask;
+}
+
+void IRAM_ATTR triacTimerISR() {
+  portENTER_CRITICAL_ISR(&triacMux);
+  const uint32_t now = micros();
+  for (uint8_t i = 0; i < 4; i++) {
+    if (firePending[i] && (int32_t)(now - fireAtUs[i]) >= 0) {
+      triacPinWriteFast(i, true);
+      gateHigh[i] = true;
+      gateOffAtUs[i] = now + TRIAC_GATE_PULSE_US;
+      firePending[i] = false;
+    }
+    if (gateHigh[i] && (int32_t)(now - gateOffAtUs[i]) >= 0) {
+      triacPinWriteFast(i, false);
+      gateHigh[i] = false;
+    }
+  }
+  portEXIT_CRITICAL_ISR(&triacMux);
+}
+
+// ========================= FAN CONTROL ===============================
+
+uint32_t speedToDelayUs(int speedPercent) {
+  speedPercent = constrain(speedPercent, 1, 100);
+  uint32_t halfCycle = HALF_CYCLE_US;
+  uint32_t minDelay = TRIAC_EARLY_MARGIN_US;
+  uint32_t maxDelay = (halfCycle > TRIAC_LATE_MARGIN_US) ? halfCycle - TRIAC_LATE_MARGIN_US : halfCycle / 2;
+  if (maxDelay <= minDelay) maxDelay = minDelay + 100;
+  uint32_t delayUs = minDelay + ((uint32_t)(100 - speedPercent) * (maxDelay - minDelay)) / 99UL;
+  return delayUs; // Per-fan calibrated offsets are applied in zcEvent().
+}
+
+void applyFanHardware(int fanIdx, int speedPercent) {
+  if (fanIdx < 0 || fanIdx > 3) return;
+
+  speedPercent = constrain(speedPercent, 0, 100);
+  if (!triacTimerReady) speedPercent = 0;
+
+  portENTER_CRITICAL(&triacMux);
+
+  fanSpeed[fanIdx] = speedPercent;
+  fanEnabled[fanIdx] = (speedPercent > 0);
+
+  if (!fanEnabled[fanIdx]) {
+    firePending[fanIdx] = false;
+    gateHigh[fanIdx] = false;
+    triacPinWriteFast((uint8_t)fanIdx, false);
+  }
+
+  portEXIT_CRITICAL(&triacMux);
+
+  int triacPins[4] = {
+    FAN1_TRIAC_PIN, FAN2_TRIAC_PIN, FAN3_TRIAC_PIN, FAN4_TRIAC_PIN
+  };
+
+  if (speedPercent == 0) {
+    digitalWrite(triacPins[fanIdx], LOW);
+  }
+}
+
+void setFanSpeed(int fanIdx, int speedPercent, bool save = true) {
+  if (fanIdx < 0 || fanIdx > 3) return;
+
+  speedPercent = constrain(speedPercent, 0, fanMaxSpeed);
+  if (!triacTimerReady) speedPercent = 0;
+
+  if (speedPercent > 0 && speedPercent < fanMinSpeed) {
+    speedPercent = fanMinSpeed;
+  }
+
+  applyFanHardware(fanIdx, speedPercent);
+
+  if (save) {
+    fanSavePending[fanIdx] = true;
+    fanSaveAt[fanIdx] = millis() + 1200UL;
+  }
+
+  if (client.connected()) {
+    client.publish(
+      ("jarvis/status/" + fanUIDs[fanIdx]).c_str(),
+      (speedPercent > 0 ? "ON" : "OFF"),
+      true
+    );
+
+    client.publish(
+      ("jarvis/status/" + fanUIDs[fanIdx] + "/speed").c_str(),
+      String(speedPercent).c_str(),
+      true
+    );
+  }
+}
+
+void serviceFanPersistence() {
+  const unsigned long now = millis();
+  for (int i = 0; i < 4; i++) {
+    if (fanSavePending[i] && (long)(now - fanSaveAt[i]) >= 0) {
+      fanSavePending[i] = false;
+      pref.putInt((fanUIDs[i] + "_sp").c_str(), (int)fanSpeed[i]);
+    }
+  }
+}
+
+void setFanState(int fanIdx, bool state, bool save = true) {
+  if (fanIdx < 0 || fanIdx > 3) return;
+
+  if (state) {
+    int lastSpeed = pref.getInt(
+      (fanUIDs[fanIdx] + "_sp").c_str(),
+      fanStartupSpeed
+    );
+
+    if (lastSpeed <= 0) lastSpeed = fanStartupSpeed;
+    setFanSpeed(fanIdx, lastSpeed, save);
+  } else {
+    setFanSpeed(fanIdx, 0, save);
+  }
+}
+
+bool fanZeroCrossHealthy(int idx) {
+  if (idx < 0 || idx > 3) return false;
+
+  uint32_t last = lastZcUs[idx];
+  if (!zcSeen[idx]) return false;
+
+  return elapsedUs(micros(), last) < 100000UL;
+}
+
+// ========================= SENSOR ====================================
+
+long getDistance() {
+  digitalWrite(TRIG_PIN, LOW);
+  delayMicroseconds(2);
+  digitalWrite(TRIG_PIN, HIGH);
+  delayMicroseconds(10);
+  digitalWrite(TRIG_PIN, LOW);
+
+  long duration = pulseIn(ECHO_PIN, HIGH, 30000);
+  if (duration <= 0) return -1;  // no echo: invalid reading, not 0 cm
+  return (long)(duration * 0.034 / 2.0);
+}
+
+// ========================= MQTT DISCOVERY ============================
+
+String jsonString(const String &s);
+
+String deviceJson() {
+  return ",\"device\":{" 
+         "\"identifiers\":[\"" + jsonString(haDeviceId) + "\"],"
+         "\"name\":\"" + jsonString(haName) + "\","
+         "\"manufacturer\":\"Jarvis\","
+         "\"model\":\"AC Fan & Water Controller\","
+         "\"sw_version\":\"2026.11\""
+         "}";
+}
+
+void publishDiscovery(const String &topic, const String &payload) {
+  if (!client.connected()) { discoveryPublishFailed = true; return; }
+
+  bool ok = client.publish(topic.c_str(), payload.c_str(), true);
+
+  if (!ok) {
+    discoveryPublishFailed = true;
+    Serial.print("Discovery publish failed: ");
+    Serial.println(topic);
+  }
+}
+
+void sendDiscovery() {
+  discoveryPublishFailed = false;
+  String dev = deviceJson();
+
+  for (int i = 0; i < 4; i++) {
+    String configTopic = "homeassistant/fan/" + fanUIDs[i] + "/config";
+
+    String payload =
+      "{"
+      "\"name\":\"" + fanNames[i] + "\","
+      "\"unique_id\":\"" + fanUIDs[i] + "_2026\","
+      "\"state_topic\":\"jarvis/status/" + fanUIDs[i] + "\","
+      "\"command_topic\":\"jarvis/" + fanUIDs[i] + "/cmd\","
+      "\"percentage_state_topic\":\"jarvis/status/" + fanUIDs[i] + "/speed\","
+      "\"percentage_command_topic\":\"jarvis/" + fanUIDs[i] + "/speed/cmd\","
+      "\"availability_topic\":\"" + String(availability_topic) + "\","
+      "\"payload_available\":\"online\","
+      "\"payload_not_available\":\"offline\","
+      "\"payload_on\":\"ON\","
+      "\"payload_off\":\"OFF\","
+      "\"percentage_command_template\":\"{{ value | int }}\","
+      "\"percentage_value_template\":\"{{ value | int }}\"" +
+      dev +
+      "}";
+
+    publishDiscovery(configTopic, payload);
+  }
+
+  publishDiscovery(
+    "homeassistant/sensor/jarvis_temp/config",
+    "{\"name\":\"তাপমাত্রা\","
+    "\"unique_id\":\"j_temp_2026\","
+    "\"state_topic\":\"jarvis/sensor/temp\","
+    "\"unit_of_measurement\":\"°C\","
+    "\"device_class\":\"temperature\","
+    "\"availability_topic\":\"" + String(availability_topic) + "\""
+    + dev + "}"
+  );
+
+  publishDiscovery(
+    "homeassistant/sensor/jarvis_hum/config",
+    "{\"name\":\"আর্দ্রতা\","
+    "\"unique_id\":\"j_hum_2026\","
+    "\"state_topic\":\"jarvis/sensor/hum\","
+    "\"unit_of_measurement\":\"%\","
+    "\"device_class\":\"humidity\","
+    "\"availability_topic\":\"" + String(availability_topic) + "\""
+    + dev + "}"
+  );
+
+  publishDiscovery(
+    "homeassistant/sensor/jarvis_water_pct/config",
+    "{\"name\":\"পানির লেভেল\","
+    "\"unique_id\":\"j_water_pct_2026\","
+    "\"state_topic\":\"jarvis/sensor/water_pct\","
+    "\"unit_of_measurement\":\"%\","
+    "\"icon\":\"mdi:water-percent\","
+    "\"availability_topic\":\"" + String(availability_topic) + "\""
+    + dev + "}"
+  );
+
+  publishDiscovery(
+    "homeassistant/sensor/jarvis_volt/config",
+    "{\"name\":\"ভোল্টেজ\","
+    "\"unique_id\":\"j_volt_2026\","
+    "\"state_topic\":\"jarvis/sensor/volt\","
+    "\"unit_of_measurement\":\"V\","
+    "\"device_class\":\"voltage\","
+    "\"availability_topic\":\"" + String(availability_topic) + "\""
+    + dev + "}"
+  );
+
+  publishDiscovery(
+    "homeassistant/sensor/jarvis_curr/config",
+    "{\"name\":\"কারেন্ট\","
+    "\"unique_id\":\"j_curr_2026\","
+    "\"state_topic\":\"jarvis/sensor/curr\","
+    "\"unit_of_measurement\":\"A\","
+    "\"device_class\":\"current\","
+    "\"availability_topic\":\"" + String(availability_topic) + "\""
+    + dev + "}"
+  );
+
+  publishDiscovery(
+    "homeassistant/sensor/jarvis_pwr/config",
+    "{\"name\":\"পাওয়ার\","
+    "\"unique_id\":\"j_pwr_2026\","
+    "\"state_topic\":\"jarvis/sensor/pwr\","
+    "\"unit_of_measurement\":\"W\","
+    "\"device_class\":\"power\","
+    "\"availability_topic\":\"" + String(availability_topic) + "\""
+    + dev + "}"
+  );
+
+  publishDiscovery(
+    "homeassistant/sensor/jarvis_pressure/config",
+    "{\"name\":\"বায়ুচাপ\","
+    "\"unique_id\":\"j_pressure_2026\","
+    "\"state_topic\":\"jarvis/sensor/pressure\","
+    "\"unit_of_measurement\":\"hPa\","
+    "\"device_class\":\"atmospheric_pressure\","
+    "\"availability_topic\":\"" + String(availability_topic) + "\""
+    + dev + "}"
+  );
+
+  publishDiscovery(
+    "homeassistant/binary_sensor/jarvis_pir/config",
+    "{\"name\":\"PIR Motion\","
+    "\"unique_id\":\"j_pir_2026\","
+    "\"state_topic\":\"jarvis/sensor/pir\","
+    "\"payload_on\":\"ON\","
+    "\"payload_off\":\"OFF\","
+    "\"device_class\":\"motion\","
+    "\"availability_topic\":\"" + String(availability_topic) + "\""
+    + dev + "}"
+  );
+
+  publishDiscovery(
+    "homeassistant/switch/jarvis_motor/config",
+    "{\"name\":\"পানির মোটর\","
+    "\"unique_id\":\"j_motor_2026\","
+    "\"state_topic\":\"jarvis/status/motor\","
+    "\"command_topic\":\"jarvis/motor/cmd\","
+    "\"payload_on\":\"ON\","
+    "\"payload_off\":\"OFF\","
+    "\"availability_topic\":\"" + String(availability_topic) + "\""
+    + dev + "}"
+  );
+
+  for (int i = 0; i < 4; i++) {
+    publishDiscovery(
+      "homeassistant/binary_sensor/" + fanUIDs[i] + "_zc/config",
+      "{\"name\":\"" + fanNames[i] + " Zero Cross\","
+      "\"unique_id\":\"" + fanUIDs[i] + "_zc_2026\","
+      "\"state_topic\":\"jarvis/status/" + fanUIDs[i] + "/zc\","
+      "\"payload_on\":\"OK\","
+      "\"payload_off\":\"FAULT\","
+      "\"device_class\":\"connectivity\","
+      "\"availability_topic\":\"" + String(availability_topic) + "\""
+      + dev + "}"
+    );
+  }
+}
+
+// ========================= MQTT CALLBACK =============================
+
+void callback(char* topic, byte* payload, unsigned int length) {
+  String message;
+  message.reserve(length + 1);
+
+  for (unsigned int i = 0; i < length; i++) {
+    message += (char)payload[i];
+  }
+
+  message.trim();
+
+  String topicStr = String(topic);
+
+  for (int i = 0; i < 4; i++) {
+    if (topicStr == "jarvis/" + fanUIDs[i] + "/speed/cmd") {
+      bool numeric = message.length() > 0;
+      for (unsigned int k = 0; k < message.length(); k++) {
+        if (!isDigit(message[k])) { numeric = false; break; }
+      }
+      if (numeric) {
+        int requestedSpeed = message.toInt();
+        if (requestedSpeed >= 0 && requestedSpeed <= 100) setFanSpeed(i, requestedSpeed);
+      }
+    }
+    else if (topicStr == "jarvis/" + fanUIDs[i] + "/cmd") {
+      if (message == "ON") {
+        setFanState(i, true);
+      } else if (message == "OFF") {
+        setFanState(i, false, true);
+      }
+    }
+  }
+
+  if (topicStr == "jarvis/motor/cmd") {
+    bool state = (message == "ON");
+    // Require a valid tank reading and prevent filling beyond the stop level.
+    if (state && (motorRunTimeoutLatched || !waterLevelValid || millis() - lastWaterReadingAt > 15000UL ||
+                  lastWater < 0 || lastWater >= motor_stop_pct)) {
+      Serial.println("[MOTOR][BLOCKED] ON rejected: tank reading is invalid/stale or already at stop threshold.");
+      state = false;
+    }
+
+    digitalWrite(MOTOR_PIN, state ? HIGH : LOW);
+    if (state) motorRunStartedAt = millis();
+    else motorRunStartedAt = 0;
+    pref.putBool("m_st", state);
+    lastMotorState = state;
+
+    if (client.connected()) {
+      client.publish(
+        "jarvis/status/motor",
+        state ? "ON" : "OFF",
+        true
+      );
+    }
+  }
+  else if (topicStr == "jarvis/settings/empty/set") {
+    int candidate = message.toInt();
+    if (candidate >= 2 && candidate <= 400 && candidate > tank_full_dist) {
+      tank_empty_dist = candidate;
+      pref.putInt("t_e", tank_empty_dist);
+    } else {
+      Serial.println("[CONFIG][REJECT] Invalid tank-empty distance; existing setting retained.");
+    }
+  }
+  else if (topicStr == "jarvis/settings/full/set") {
+    int candidate = message.toInt();
+    if (candidate >= 1 && candidate <= 399 && candidate < tank_empty_dist) {
+      tank_full_dist = candidate;
+      pref.putInt("t_f", tank_full_dist);
+    } else {
+      Serial.println("[CONFIG][REJECT] Invalid tank-full distance; existing setting retained.");
+    }
+  }
+}
+
+// ========================= MQTT =====================================
+
+void subscribeTopics() {
+  client.subscribe("jarvis/+/cmd");
+  client.subscribe("jarvis/+/speed/cmd");
+  client.subscribe("jarvis/motor/cmd");
+  client.subscribe("jarvis/settings/+/set");
+}
+
+void restoreOutputs() {
+  // Safety: never restart a water pump automatically after a reboot or
+  // MQTT reconnection. The level-control task may start it after valid data.
+  digitalWrite(MOTOR_PIN, LOW);
+  motorRunStartedAt = 0;
+  motorRunTimeoutLatched = false;
+  lastMotorState = false;
+  pref.putBool("m_st", false);
+
+  for (int i = 0; i < 4; i++) {
+    int saved = pref.getInt(
+      (fanUIDs[i] + "_sp").c_str(),
+      0
+    );
+
+    setFanSpeed(i, saved, false);
+  }
+}
+
+bool connectMqttOnce() {
+  if (WiFi.status() != WL_CONNECTED) return false;
+  if (client.connected()) return true;
+
+  String clientId = "Jarvis_Final_2026_" + String((uint32_t)ESP.getEfuseMac(), HEX);
+
+  bool ok = false;
+
+  if (mqttUser.length() > 0) {
+    ok = client.connect(
+      clientId.c_str(),
+      mqttUser.c_str(),
+      mqttPass.c_str(),
+      availability_topic,
+      0,
+      true,
+      "offline"
+    );
+  } else {
+    ok = client.connect(
+      clientId.c_str(),
+      availability_topic,
+      0,
+      true,
+      "offline"
+    );
+  }
+
+  if (ok) {
+    client.publish(availability_topic, "online", true);
+    subscribeTopics();
+    sendDiscovery();
+    // MQTT reconnect must not reload old fan values from NVS over live
+    // dashboard commands. Keep current fan state; force only the pump OFF
+    // as a reconnect safety policy, then publish the live states.
+    digitalWrite(MOTOR_PIN, LOW);
+    lastMotorState = false;
+    pref.putBool("m_st", false);
+    for (int i = 0; i < 4; i++) {
+      client.publish(("jarvis/status/" + fanUIDs[i]).c_str(), fanEnabled[i] ? "ON" : "OFF", true);
+      client.publish(("jarvis/status/" + fanUIDs[i] + "/speed").c_str(), String((int)fanSpeed[i]).c_str(), true);
+    }
+    if (lastTemp > -999) client.publish("jarvis/sensor/temp", String(lastTemp, 1).c_str(), true);
+    if (lastHum > -999) client.publish("jarvis/sensor/hum", String(lastHum, 1).c_str(), true);
+    if (lastWater >= 0) client.publish("jarvis/sensor/water_pct", String(lastWater, 0).c_str(), true);
+    if (lastVolt >= 0) client.publish("jarvis/sensor/volt", String(lastVolt, 1).c_str(), true);
+    if (lastCurrent >= 0) client.publish("jarvis/sensor/curr", String(lastCurrent, 2).c_str(), true);
+    if (lastPower >= 0) client.publish("jarvis/sensor/pwr", String(lastPower, 1).c_str(), true);
+    if (lastPressure > -999) client.publish("jarvis/sensor/pressure", String(lastPressure, 1).c_str(), true);
+    client.publish("jarvis/sensor/pir", lastPir ? "ON" : "OFF", true);
+    client.publish("jarvis/status/motor", lastMotorState ? "ON" : "OFF", true);
+    zcStatePublishPending = true;
+    lastDiscovery = millis();
+
+    Serial.println("MQTT connected");
+  } else {
+    Serial.print("MQTT failed, state=");
+    Serial.println(client.state());
+  }
+
+  return ok;
+}
+
+void mqttTask() {
+  if (client.connected()) {
+    client.loop();
+    if (discoveryPublishFailed && millis() - lastDiscovery >= 60000UL) {
+      lastDiscovery = millis();
+      Serial.println("[MQTT][HA] Retrying incomplete Home Assistant discovery publish set.");
+      sendDiscovery();
+    }
+    return;
+  }
+
+  if (millis() - lastMqttAttempt >= 5000) {
+    lastMqttAttempt = millis();
+    connectMqttOnce();
+  }
+}
+
+// ========================= PREFERENCES ===============================
+
+void loadPreferences() {
+  wifiEverConnected = pref.getBool("wifi_ok", false);
+  Serial.printf("[WiFi][NVS] Previously connected successfully=%s\n", wifiEverConnected ? "YES" : "NO");
+  mqttHost = pref.getString("mqtt_host", "homeassistant.local");
+  mqttPort = pref.getUShort("mqtt_port", 1883);
+  mqttUser = pref.getString("mqtt_user", "esp32");
+  mqttPass = pref.getString("mqtt_pass", "12345678");
+
+  haHost = pref.getString("ha_host", "");
+  haPort = pref.getUShort("ha_port", 8123);
+  haName = pref.getString("ha_name", "Jarvis Fan System");
+  haDeviceId = pref.getString("ha_id", "jarvis_fan_system_final");
+
+  fanMinSpeed = pref.getInt("f_min", FAN_MIN_SPEED_DEFAULT);
+  fanMaxSpeed = pref.getInt("f_max", 100);
+  fanStartupSpeed = pref.getInt("f_start", 100);
+
+  tank_empty_dist = pref.getInt("t_e", 110);
+  tank_full_dist = pref.getInt("t_f", 10);
+  motor_start_pct = pref.getInt("m_s", 15);
+  motor_stop_pct = pref.getInt("m_p", 98);
+
+  for (int i = 0; i < 4; i++) {
+    String key = "zc" + String(i);
+    String offKey = "zco" + String(i);
+    zcProfile[i] = pref.getUChar(key.c_str(), defaultZcProfile(i));
+    zcTimingOffsetUs[i] = pref.getInt(offKey.c_str(), ZC_TIMING_OFFSET_US_DEFAULT);
+    zcTimingOffsetUs[i] = constrain(zcTimingOffsetUs[i], -2000L, 2000L);
+    if (zcProfile[i] > ZC_PROFILE_PC817_FALLING) zcProfile[i] = defaultZcProfile(i);
+  }
+
+  fanMinSpeed = constrain(fanMinSpeed, 1, 100);
+  fanMaxSpeed = constrain(fanMaxSpeed, fanMinSpeed, 100);
+  fanStartupSpeed = constrain(fanStartupSpeed, fanMinSpeed, fanMaxSpeed);
+}
+
+void savePreferences() {
+  pref.putBool("wifi_ok", wifiEverConnected);
+  pref.putString("mqtt_host", mqttHost);
+  pref.putUShort("mqtt_port", mqttPort);
+  pref.putString("mqtt_user", mqttUser);
+  pref.putString("mqtt_pass", mqttPass);
+
+  pref.putString("ha_host", haHost);
+  pref.putUShort("ha_port", haPort);
+  pref.putString("ha_name", haName);
+  pref.putString("ha_id", haDeviceId);
+
+  pref.putInt("f_min", fanMinSpeed);
+  pref.putInt("f_max", fanMaxSpeed);
+  pref.putInt("f_start", fanStartupSpeed);
+
+  pref.putInt("t_e", tank_empty_dist);
+  pref.putInt("t_f", tank_full_dist);
+  pref.putInt("m_s", motor_start_pct);
+  pref.putInt("m_p", motor_stop_pct);
+
+  for (int i = 0; i < 4; i++) {
+    String key = "zc" + String(i);
+    String offKey = "zco" + String(i);
+    pref.putUChar(key.c_str(), zcProfile[i]);
+    pref.putInt(offKey.c_str(), zcTimingOffsetUs[i]);
+  }
+}
+
+// ========================= DASHBOARD ================================
+
+String htmlEscape(const String &s) {
+  String r = s;
+  r.replace("&", "&amp;");
+  r.replace("<", "&lt;");
+  r.replace(">", "&gt;");
+  r.replace("\"", "&quot;");
+  return r;
+}
+
+String jsonString(const String &s) {
+  String r = s;
+  r.replace("\\", "\\\\");
+  r.replace("\"", "\\\"");
+  r.replace("\n", "");
+  r.replace("\r", "");
+  return r;
+}
+
+String buildDashboard() {
+  String h;
+  h.reserve(22000);
+
+  h += F("<!doctype html><html><head><meta charset='utf-8'>");
+  h += F("<meta name='viewport' content='width=device-width,initial-scale=1'>");
+  h += F("<title>Jarvis Fan Controller</title>");
+  h += F("<style>");
+  h += F("body{font-family:Arial,sans-serif;margin:0;background:#10141b;color:#eee}");
+  h += F(".wrap{max-width:1100px;margin:auto;padding:16px}");
+  h += F(".grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:12px}");
+  h += F(".card{background:#1a202b;border-radius:14px;padding:16px;box-shadow:0 2px 10px #0005}");
+  h += F("h1{font-size:24px}.fan h2{margin-top:0}");
+  h += F("button{border:0;border-radius:10px;padding:10px 14px;margin:4px;cursor:pointer}");
+  h += F("input,select{width:100%;box-sizing:border-box;padding:10px;border-radius:8px;border:1px solid #555;background:#0d1117;color:#fff;margin:5px 0 10px}");
+  h += F("input[type=range]{padding:0}.value{font-size:26px;font-weight:bold}");
+  h += F(".on{color:#66e39b}.off{color:#ff7d7d}.ok{color:#66e39b}.bad{color:#ff7d7d}");
+  h += F(".muted{color:#9aa4b2;font-size:13px}.wide{grid-column:1/-1}");
+  h += F("</style></head><body><div class='wrap'>");
+  h += F("<h1>JARVIS AC FAN & WATER CONTROLLER</h1>");
+  h += F("<p class='muted'>Zero-Cross + Phase-Angle TRIAC control</p>");
+
+  h += F("<div class='grid'>");
+
+  for (int i = 0; i < 4; i++) {
+    h += "<div class='card fan'><h2>" + htmlEscape(fanNames[i]) + "</h2>";
+    h += "<div id='f" + String(i) + "state' class='value off'>OFF</div>";
+    h += "<div>Speed: <span id='f" + String(i) + "val'>0</span>%</div>";
+    h += "<input id='f" + String(i) + "' type='range' min='0' max='100' value='0' "
+         "oninput='sp(" + String(i) + ",this.value)'>";
+    h += "<button onclick='onoff(" + String(i) + ",1)'>ON</button>";
+    h += "<button onclick='onoff(" + String(i) + ",0)'>OFF</button>";
+    h += "<div>ZC: <span id='z" + String(i) + "'>--</span></div></div>";
+  }
+
+  h += F("<div class='card'><h2>Temperature</h2><div id='temp' class='value'>--</div></div>");
+  h += F("<div class='card'><h2>Humidity</h2><div id='hum' class='value'>--</div></div>");
+  h += F("<div class='card'><h2>Water</h2><div id='water' class='value'>--</div></div>");
+  h += F("<div class='card'><h2>Motor</h2><div id='motor' class='value'>--</div></div>");
+  h += F("<div class='card'><h2>Voltage</h2><div id='volt' class='value'>--</div></div>");
+  h += F("<div class='card'><h2>Current</h2><div id='curr' class='value'>--</div></div>");
+  h += F("<div class='card'><h2>Power</h2><div id='pwr' class='value'>--</div></div>");
+  h += F("<div class='card'><h2>Pressure</h2><div id='pressure' class='value'>--</div></div>");
+  h += F("<div class='card'><h2>Wi-Fi</h2><div id='wifi' class='value'>--</div><div class='muted'>SSID: <span id='wifiSsid'>--</span></div><div class='muted'>IP: <span id='wifiIp'>--</span></div></div>");
+  h += F("<div class='card'><h2>MQTT</h2><div id='mqtt' class='value'>--</div></div>");
+
+  h += F("<div class='card wide'><h2>Configuration</h2>");
+  h += "<form method='POST' action='/save'>";
+
+  h += F("<label>MQTT Host</label><input name='mqtt_host' value='");
+  h += htmlEscape(mqttHost);
+  h += F("'>");
+
+  h += F("<label>MQTT Port</label><input type='number' name='mqtt_port' value='");
+  h += String(mqttPort);
+  h += F("'>");
+
+  h += F("<label>MQTT Username</label><input name='mqtt_user' value='");
+  h += htmlEscape(mqttUser);
+  h += F("'>");
+
+  h += F("<label>MQTT Password (blank keeps current)</label><input type='password' name='mqtt_pass' value='' autocomplete='new-password'>");
+
+  h += F("<label>Home Assistant Host/IP</label><input name='ha_host' value='");
+  h += htmlEscape(haHost);
+  h += F("'>");
+
+  h += F("<label>Home Assistant Port</label><input type='number' name='ha_port' value='");
+  h += String(haPort);
+  h += F("'>");
+
+  h += F("<label>HA Device Name</label><input name='ha_name' value='");
+  h += htmlEscape(haName);
+  h += F("'>");
+
+  h += F("<label>HA Device ID</label><input name='ha_id' value='");
+  h += htmlEscape(haDeviceId);
+  h += F("'>");
+
+  h += F("<label>Fan Minimum Speed (%)</label><input type='number' min='1' max='100' name='f_min' value='");
+  h += String(fanMinSpeed);
+  h += F("'>");
+
+  h += F("<label>Fan Maximum Speed (%)</label><input type='number' min='1' max='100' name='f_max' value='");
+  h += String(fanMaxSpeed);
+  h += F("'>");
+
+  h += F("<label>Fan Startup Speed (%)</label><input type='number' min='1' max='100' name='f_start' value='");
+  h += String(fanStartupSpeed);
+  h += F("'>");
+
+  h += F("<label>Tank Empty Distance (cm)</label><input type='number' name='t_e' value='");
+  h += String(tank_empty_dist);
+  h += F("'>");
+
+  h += F("<label>Tank Full Distance (cm)</label><input type='number' name='t_f' value='");
+  h += String(tank_full_dist);
+  h += F("'>");
+
+  h += F("<label>Motor Start Water (%)</label><input type='number' min='0' max='100' name='m_s' value='");
+  h += String(motor_start_pct);
+  h += F("'>");
+
+  h += F("<label>Motor Stop Water (%)</label><input type='number' min='0' max='100' name='m_p' value='");
+  h += String(motor_stop_pct);
+  h += F("'>");
+
+  h += F("<h3>Universal Zero-Cross Detector Selection</h3>");
+  h += F("<p class='muted'>Select the profile matching your isolated ZC output circuit. The selected profile is stored in NVS; no firmware rebuild is required.</p>");
+  const char* zcOptions[6] = {
+    "AC-OPTO / RISING (H11AA1, IL250/252, LTV-814 family)",
+    "AC-OPTO / FALLING (inverted output)",
+    "MODULE / RISING (ESP32-safe digital output)",
+    "MODULE / FALLING (ESP32-safe active-low output)",
+    "PC817 AC DETECTOR / RISING (with proper rectifier/front-end)",
+    "PC817 AC DETECTOR / FALLING (inverted output)"
+  };
+  for (int i = 0; i < 4; i++) {
+    h += "<label>Fan " + String(i + 1) + " ZC profile</label><select name='zc" + String(i) + "'>";
+    for (int p = 0; p < 6; p++) {
+      h += "<option value='" + String(p) + "'" + (zcProfile[i] == p ? " selected" : "") + ">" + String(zcOptions[p]) + "</option>";
+    }
+    h += "</select>";
+    h += "<label>Fan " + String(i + 1) + " ZC timing offset (µs)</label><input type='number' min='-2000' max='2000' name='zco" + String(i) + "' value='" + String(zcTimingOffsetUs[i]) + "'>";
+  }
+
+  h += F("<button type='submit'>SAVE CONFIGURATION</button></form></div>");
+
+  h += F("<div class='card wide'><h2>WiFi Configuration</h2><p class='muted'>WiFi SSID/password are stored in ESP32 NVS. Open the setup portal to replace them.</p><a href='/wifi'><button type='button'>OPEN WIFI SETUP PORTAL</button></a></div>");
+  h += F("<div class='card wide'><h2>Factory Reset</h2><p class='muted'>To erase WiFi credentials and all JARVIS settings, hold the ESP32 BOOT button (GPIO0) for 8 seconds after startup. Normal restart does not erase settings.</p></div>");
+
+  h += F("</div>");
+
+  h += F("<script>");
+  h += F("let timer;");
+  h += F("function sp(i,v){document.getElementById('f'+i+'val').innerText=v;fetch('/api/fan?i='+i+'&speed='+v).catch(()=>{});}");
+  h += F("function onoff(i,s){fetch('/api/fan?i='+i+'&state='+s).then(refresh);}");
+  h += F("function txt(id,v){document.getElementById(id).innerText=v;}");
+  h += F("function refresh(){fetch('/api/status').then(r=>r.json()).then(x=>{");
+  h += F("for(let i=0;i<4;i++){");
+  h += F("txt('f'+i+'val',x.fans[i].speed);");
+  h += F("txt('f'+i+'state',x.fans[i].on?'ON':'OFF');");
+  h += F("document.getElementById('f'+i+'state').className='value '+(x.fans[i].on?'on':'off');");
+  h += F("document.getElementById('f'+i).value=x.fans[i].speed;");
+  h += F("txt('z'+i,x.fans[i].zc?'OK':'FAULT');");
+  h += F("document.getElementById('z'+i).className=x.fans[i].zc?'ok':'bad';");
+  h += F("}");
+  h += F("txt('temp',x.temp+' °C');txt('hum',x.hum+' %');txt('water',x.water+' %');");
+  h += F("txt('motor',x.motor?'ON':'OFF');txt('volt',x.volt+' V');txt('curr',x.curr+' A');");
+  h += F("txt('pwr',x.pwr+' W');txt('pressure',x.pressure+' hPa');");
+  h += F("txt('wifi',x.wifiConnected?'CONNECTED':'DISCONNECTED');");
+  h += F("document.getElementById('wifi').className='value '+(x.wifiConnected?'ok':'bad');");
+  h += F("txt('wifiSsid',x.wifiSsid||'--');txt('wifiIp',x.wifiIp||'--');");
+  h += F("txt('mqtt',x.mqtt?'CONNECTED':'DISCONNECTED');");
+  h += F("}).catch(()=>{});}");
+  h += F("refresh();setInterval(refresh,2000);");
+  h += F("</script></body></html>");
+
+  return h;
+}
+
+
+bool authorizeDashboardRequest() {
+  if (mqttPass.length() < 8) {
+    server.send(503, "text/plain; charset=utf-8", "Dashboard disabled: configure an MQTT password of at least 8 characters.");
+    return false;
+  }
+  const String authUser = mqttUser.length() ? mqttUser : String("jarvis");
+  if (!server.authenticate(authUser.c_str(), mqttPass.c_str())) {
+    server.requestAuthentication();
+    return false;
+  }
+  return true;
+}
+
+void handleDashboard() {
+  if (!authorizeDashboardRequest()) return;
+  server.send(200, "text/html; charset=utf-8", buildDashboard());
+}
+
+void handleWiFiPortal() {
+  if (!authorizeDashboardRequest()) return;
+  server.send(200, "text/html; charset=utf-8",
+              "<html><meta name='viewport' content='width=device-width,initial-scale=1'>"
+              "<body><h2>Jarvis WiFi setup</h2><p>The setup portal is available only after physical factory reset. If available, connect to Jarvis_AP (password: JarvisSetup26), then open http://192.168.4.1.</p></body></html>");
+  // Start WiFiManager only after this dashboard response has been sent.
+  wifiPortalStartRequested = true;
+}
+
+
+void handleFanApi() {
+  if (!authorizeDashboardRequest()) return;
+  int idx = server.arg("i").toInt();
+
+  if (idx < 0 || idx > 3) {
+    server.send(400, "text/plain", "invalid fan");
+    return;
+  }
+
+  if (server.hasArg("speed")) {
+    setFanSpeed(idx, server.arg("speed").toInt());
+  }
+
+  if (server.hasArg("state")) {
+    setFanState(idx, server.arg("state").toInt() != 0);
+  }
+
+  server.send(200, "text/plain", "OK");
+}
+
+void handleStatusApi() {
+  if (!authorizeDashboardRequest()) return;
+  String j;
+  j.reserve(3000);
+
+  j += "{\"fans\":[";
+  for (int i = 0; i < 4; i++) {
+    if (i) j += ",";
+    j += "{\"speed\":";
+    j += String((int)fanSpeed[i]);
+    j += ",\"on\":";
+    j += fanEnabled[i] ? "true" : "false";
+    j += ",\"zc\":";
+    j += fanZeroCrossHealthy(i) ? "true" : "false";
+    j += ",\"halfCycleUs\":";
+    j += String((uint32_t)measuredHalfCycleUs[i]);
+    j += ",\"zcProfile\":\"";
+    j += jsonString(String(zcProfileName(zcProfile[i])));
+    j += "\",\"zcOffsetUs\":";
+    j += String(zcTimingOffsetUs[i]);
+    j += "}";
+  }
+  j += "],";
+
+  j += "\"temp\":";
+  j += String(lastTemp, 1);
+  j += ",\"hum\":";
+  j += String(lastHum, 1);
+  j += ",\"water\":";
+  j += String(lastWater, 0);
+  j += ",\"motor\":";
+  j += lastMotorState ? "true" : "false";
+  j += ",\"volt\":";
+  j += String(lastVolt, 1);
+  j += ",\"curr\":";
+  j += String(lastCurrent, 2);
+  j += ",\"pwr\":";
+  j += String(lastPower, 1);
+  j += ",\"pressure\":";
+  j += String(lastPressure, 1);
+  j += ",\"wifi\":";
+  j += String(WiFi.RSSI());
+  j += ",\"wifiConnected\":";
+  j += (WiFi.status() == WL_CONNECTED && WiFi.localIP() != IPAddress(0, 0, 0, 0)) ? "true" : "false";
+  j += ",\"wifiSsid\":\"";
+  j += jsonString(WiFi.status() == WL_CONNECTED ? WiFi.SSID() : String(""));
+  j += "\",\"wifiIp\":\"";
+  j += (WiFi.status() == WL_CONNECTED ? WiFi.localIP().toString() : String("--"));
+  j += "\",\"mqtt\":";
+  j += client.connected() ? "true" : "false";
+  j += "}";
+
+  server.send(200, "application/json", j);
+}
+
+void handleSaveConfig() {
+  if (!authorizeDashboardRequest()) return;
+  if (server.hasArg("mqtt_host")) mqttHost = server.arg("mqtt_host");
+  if (server.hasArg("mqtt_port")) {
+    int p = server.arg("mqtt_port").toInt();
+    mqttPort = (uint16_t)((p >= 1 && p <= 65535) ? p : 1883);
+  }
+  if (server.hasArg("mqtt_user")) mqttUser = server.arg("mqtt_user");
+  if (server.hasArg("mqtt_pass") && server.arg("mqtt_pass").length() > 0) mqttPass = server.arg("mqtt_pass");
+
+  if (server.hasArg("ha_host")) haHost = server.arg("ha_host");
+  if (server.hasArg("ha_port")) {
+    int p = server.arg("ha_port").toInt();
+    haPort = (uint16_t)((p >= 1 && p <= 65535) ? p : 8123);
+  }
+  if (server.hasArg("ha_name")) haName = server.arg("ha_name");
+  if (server.hasArg("ha_id")) haDeviceId = server.arg("ha_id");
+  mqttHost.trim();
+  mqttUser.trim();
+  haHost.trim();
+  haName.trim();
+  haDeviceId.trim();
+  if (mqttHost.length() == 0) mqttHost = "homeassistant.local";
+  if (haName.length() == 0) haName = "Jarvis Fan System";
+  if (haDeviceId.length() == 0) haDeviceId = "jarvis_fan_system_final";
+
+  if (server.hasArg("f_min")) fanMinSpeed = constrain(server.arg("f_min").toInt(), 1, 100);
+  if (server.hasArg("f_max")) fanMaxSpeed = constrain(server.arg("f_max").toInt(), fanMinSpeed, 100);
+  if (server.hasArg("f_start")) fanStartupSpeed = constrain(server.arg("f_start").toInt(), fanMinSpeed, fanMaxSpeed);
+
+  if (server.hasArg("t_e")) tank_empty_dist = constrain(server.arg("t_e").toInt(), 2, 400);
+  if (server.hasArg("t_f")) tank_full_dist = constrain(server.arg("t_f").toInt(), 1, 399);
+  // Tank distance must decrease as the tank fills; reject an invalid pair.
+  if (tank_empty_dist <= tank_full_dist) {
+    tank_empty_dist = 110;
+    tank_full_dist = 10;
+  }
+
+  if (server.hasArg("m_s")) motor_start_pct = constrain(server.arg("m_s").toInt(), 0, 99);
+  if (server.hasArg("m_p")) motor_stop_pct = constrain(server.arg("m_p").toInt(), 1, 100);
+  if (motor_stop_pct <= motor_start_pct) {
+    motor_start_pct = 15;
+    motor_stop_pct = 98;
+  }
+
+  for (int i = 0; i < 4; i++) {
+    String key = "zc" + String(i);
+    if (server.hasArg(key)) {
+      int profile = server.arg(key).toInt();
+      if (profile >= 0 && profile <= ZC_PROFILE_PC817_FALLING) zcProfile[i] = (uint8_t)profile;
+    }
+    String offKey = "zco" + String(i);
+    if (server.hasArg(offKey)) {
+      zcTimingOffsetUs[i] = constrain(server.arg(offKey).toInt(), -2000, 2000);
+    }
+  }
+
+  savePreferences();
+  applyZcInterrupts();
+  for (int i = 0; i < 4; i++) {
+    int currentSpeed = (int)fanSpeed[i];
+    if (currentSpeed > fanMaxSpeed) setFanSpeed(i, fanMaxSpeed, true);
+    else if (currentSpeed > 0 && currentSpeed < fanMinSpeed) setFanSpeed(i, fanMinSpeed, true);
+  }
+
+  client.disconnect();
+  client.setServer(mqttHost.c_str(), mqttPort);
+  if (mqttPass.length() >= 8) ArduinoOTA.setPassword(mqttPass.c_str());
+
+  server.send(200, "text/html",
+              "<html><body><h2>Saved.</h2><p>MQTT settings will reconnect automatically.</p>"
+              "<a href='/'>Back</a></body></html>");
+}
+
+void startDashboardServer() {
+  if (dashboardServerRunning || configPortalRunning || WiFi.status() != WL_CONNECTED) return;
+  server.begin();
+  dashboardServerRunning = true;
+  Serial.print("[WEB][OK] Dashboard listening at http://");
+  Serial.println(WiFi.localIP());
+}
+
+void stopDashboardServer() {
+  if (!dashboardServerRunning) return;
+  server.stop();
+  dashboardServerRunning = false;
+  Serial.println("[WEB] Dashboard server stopped to release TCP port 80 for WiFiManager.");
+}
+
+void setupWebServer() {
+  server.on("/", HTTP_GET, handleDashboard);
+  server.on("/api/status", HTTP_GET, handleStatusApi);
+  server.on("/api/fan", HTTP_GET, handleFanApi);
+  server.on("/save", HTTP_POST, handleSaveConfig);
+  server.on("/wifi", HTTP_GET, handleWiFiPortal);
+
+  // WiFiManager also owns TCP port 80 while its AP portal is active.
+  // Never bind the dashboard server at the same time.
+  startDashboardServer();
+}
+
+// ========================= WIFI / STATUS DIAGNOSTICS =================
+
+const char* wifiDisconnectReasonText(uint8_t reason) {
+  switch (reason) {
+    case 1: return "unspecified failure";
+    case 2: return "authentication expired";
+    case 15: return "4-way handshake timeout (password/security mismatch possible)";
+    case 200: return "beacon timeout / weak signal";
+    case 201: return "SSID/AP not found (check 2.4 GHz network name)";
+    case 202: return "authentication failed (check WiFi password)";
+    case 203: return "association failed";
+    case 204: return "handshake timeout (check password/WPA mode)";
+    case 205: return "connection failed";
+    case 206: return "AP TSF reset";
+    case 207: return "roaming";
+    case 208: return "association comeback time too long";
+    case 209: return "SA query timeout";
+    case 210: return "no AP found with compatible security";
+    case 211: return "no AP found matching the configured authentication-mode threshold";
+    case 212: return "no AP found meeting the configured RSSI threshold";
+    default: return "unmapped ESP-IDF WiFi reason; check router and signal";
+  }
+}
+
+
+const char* wifiAuthModeText(wifi_auth_mode_t mode) {
+  switch (mode) {
+    case WIFI_AUTH_OPEN: return "OPEN";
+    case WIFI_AUTH_WEP: return "WEP";
+    case WIFI_AUTH_WPA_PSK: return "WPA-PSK";
+    case WIFI_AUTH_WPA2_PSK: return "WPA2-PSK";
+    case WIFI_AUTH_WPA_WPA2_PSK: return "WPA/WPA2-PSK";
+    case WIFI_AUTH_WPA2_ENTERPRISE: return "WPA2-ENTERPRISE";
+    case WIFI_AUTH_WPA3_PSK: return "WPA3-PSK";
+    case WIFI_AUTH_WPA2_WPA3_PSK: return "WPA2/WPA3-PSK";
+    default: return "OTHER/NEWER AUTH MODE (see numeric value)";
+  }
+}
+
+// Read back the REAL ESP-IDF STA configuration. This proves which security
+// threshold is actually applied when the driver rejects an access point.
+void printStaSecurityConfig(const char* stage) {
+  wifi_config_t cfg = {};
+  esp_err_t err = esp_wifi_get_config(WIFI_IF_STA, &cfg);
+  Serial.print("[WiFi][STA-CONFIG][");
+  Serial.print(stage);
+  Serial.print("] esp_wifi_get_config result=");
+  Serial.println((int)err);
+  if (err == ESP_OK) {
+    Serial.print("[WiFi][STA-CONFIG] auth threshold=");
+    Serial.print(wifiAuthModeText(cfg.sta.threshold.authmode));
+    Serial.print(" (");
+    Serial.print((int)cfg.sta.threshold.authmode);
+    Serial.println(")");
+    Serial.print("[WiFi][STA-CONFIG] password length=");
+    Serial.println(strlen((const char*)cfg.sta.password));
+    Serial.print("[WiFi][STA-CONFIG] target SSID='");
+    Serial.print((const char*)cfg.sta.ssid);
+    Serial.println("'");
+  }
+}
+
+void printWiFiScanDiagnostics() {
+  Serial.println("[WiFi][SCAN] Starting 2.4 GHz network scan (passwords are never printed)...");
+  int count = WiFi.scanNetworks(false, true); // include hidden SSIDs
+  if (count < 0) {
+    Serial.print("[WiFi][SCAN][ERROR] Scan failed, code: ");
+    Serial.println(count);
+    return;
+  }
+  Serial.print("[WiFi][SCAN] Networks found: ");
+  Serial.println(count);
+  String savedSsid = wm.getWiFiSSID(true);
+  Serial.print("[WiFi][SCAN] Saved SSID: '");
+  Serial.print(savedSsid);
+  Serial.println("'");
+  bool savedFound = false;
+  for (int i = 0; i < count; ++i) {
+    String foundSsid = WiFi.SSID(i);
+    bool match = (foundSsid == savedSsid);
+    if (match) savedFound = true;
+    Serial.print("[WiFi][SCAN] ");
+    Serial.print(i + 1);
+    Serial.print(" SSID='"); Serial.print(foundSsid); Serial.print("' RSSI=");
+    Serial.print(WiFi.RSSI(i)); Serial.print("dBm CH=");
+    Serial.print(WiFi.channel(i)); Serial.print(" AUTH=");
+    wifi_auth_mode_t auth = WiFi.encryptionType(i);
+    Serial.print(wifiAuthModeText(auth));
+    Serial.print(" ("); Serial.print((int)auth); Serial.print(")");
+    if (match) Serial.print("  <== SAVED SSID MATCH");
+    Serial.println();
+  }
+  if (savedSsid.length() == 0) {
+    Serial.println("[WiFi][SCAN][INFO] No saved SSID. Select your 2.4 GHz WiFi in Jarvis_AP portal.");
+  } else if (!savedFound) {
+    Serial.println("[WiFi][SCAN][ERROR] Saved SSID NOT FOUND. Check spelling, 2.4 GHz band, hidden SSID and router signal.");
+  } else {
+    Serial.println("[WiFi][SCAN][OK] Saved SSID is visible. If connect fails next, inspect AUTH mode and disconnect reason.");
+  }
+  WiFi.scanDelete();
+}
+
+void onWiFiEvent(WiFiEvent_t event, WiFiEventInfo_t info) {
+  // Keep Wi-Fi callbacks short; diagnostics and reconnection run in wifiTask().
+  switch (event) {
+    case ARDUINO_EVENT_WIFI_STA_GOT_IP:
+      wifiGotIpEvent = true;
+      break;
+    case ARDUINO_EVENT_WIFI_STA_DISCONNECTED:
+      wifiGotIpEvent = false;
+      wifiEventDisconnectReason = info.wifi_sta_disconnected.reason;
+      wifiDisconnectEventPending = true;
+      break;
+    case ARDUINO_EVENT_WIFI_STA_LOST_IP:
+      wifiGotIpEvent = false;
+      wifiLostIpEventPending = true;
+      break;
+    default:
+      break;
+  }
+}
+
+void serviceStatusLed() {
+  // Wi-Fi indication is deliberately independent of MQTT availability.
+  // A valid STA IP means the router connection succeeded, even if the broker is offline.
+  const bool wifiConnected = (WiFi.status() == WL_CONNECTED &&
+                              WiFi.localIP() != IPAddress(0, 0, 0, 0));
+  if (wifiConnected) {
+    statusLedState = true;
+    digitalWrite(STATUS_LED_PIN, HIGH);
+    return;
+  }
+  if (millis() - lastStatusLedToggle >= 500UL) {
+    lastStatusLedToggle = millis();
+    statusLedState = !statusLedState;
+    digitalWrite(STATUS_LED_PIN, statusLedState ? HIGH : LOW);
+  }
+}
+
+void serviceConnectionDiagnostics() {
+  static int lastWiFiState = -1;
+  static int lastMqttState = -1;
+  const bool wifiConnected = (WiFi.status() == WL_CONNECTED &&
+                              WiFi.localIP() != IPAddress(0, 0, 0, 0));
+  const int wifiState = wifiConnected ? 1 : 0;
+  if (wifiState != lastWiFiState) {
+    lastWiFiState = wifiState;
+    if (wifiConnected) {
+      Serial.println("[WiFi][STATUS] CONNECTED to router");
+      Serial.printf("[WiFi][STATUS] SSID='%s'\n", WiFi.SSID().c_str());
+      Serial.printf("[WiFi][STATUS] IP=%s  RSSI=%d dBm  CHANNEL=%d\n",
+                    WiFi.localIP().toString().c_str(), WiFi.RSSI(), WiFi.channel());
+      Serial.println("[WiFi][STATUS] STATUS LED GPIO2 = SOLID ON (MQTT state does not affect this LED)");
+    } else {
+      Serial.println("[WiFi][STATUS] DISCONNECTED from router; saved credentials retry is active");
+      Serial.println("[WiFi][STATUS] STATUS LED GPIO2 = BLINKING");
+    }
+  }
+  const int mqttState = client.connected() ? 1 : 0;
+  if (mqttState != lastMqttState) {
+    lastMqttState = mqttState;
+    Serial.printf("[MQTT][STATUS] %s\n", mqttState ? "CONNECTED to broker" : "DISCONNECTED / retrying broker");
+  }
+}
+
+// Change this ID whenever a firmware release must start from a clean setup.
+// Only this marker is inspected; old WiFi/application configuration is never loaded
+// before the one-time erase. Normal reboots retain the newly entered settings.
+#define JARVIS_FIRMWARE_ID "JARVIS_AC_FAN_WATER_SAFE_2026_11_19_R6"
+
+bool eraseEntireNvsPartition(const char* reason) {
+  Serial.println();
+  Serial.print("[NVS][ERASE] Starting complete NVS erase: ");
+  Serial.println(reason);
+
+  esp_err_t deinitResult = nvs_flash_deinit();
+  if (deinitResult != ESP_OK && deinitResult != ESP_ERR_NVS_NOT_INITIALIZED) {
+    Serial.print("[NVS][ERROR] nvs_flash_deinit failed: ");
+    Serial.println((int)deinitResult);
+    return false;
+  }
+
+  esp_err_t eraseResult = nvs_flash_erase();
+  if (eraseResult != ESP_OK) {
+    Serial.print("[NVS][ERROR] nvs_flash_erase failed: ");
+    Serial.println((int)eraseResult);
+    nvs_flash_init();
+    return false;
+  }
+
+  esp_err_t initResult = nvs_flash_init();
+  if (initResult != ESP_OK) {
+    Serial.print("[NVS][ERROR] nvs_flash_init after erase failed: ");
+    Serial.println((int)initResult);
+    return false;
+  }
+
+  Serial.println("[NVS][ERASE][OK] Complete NVS partition erased and reinitialized.");
+  return true;
+}
+
+bool prepareFreshSetupForFirmwareVersion() {
+  // Firmware upgrades are NEVER allowed to erase the complete NVS partition.
+  // Only performFactoryReset(), invoked by the physical BOOT hold, may erase it.
+  Preferences markerPref;
+  if (!markerPref.begin("jarvis_sys", false)) {
+    Serial.println("[NVS][WARN] Firmware marker unavailable; preserving all existing settings.");
+    return true;
+  }
+  const String oldId = markerPref.getString("fw_id", "");
+  if (oldId != JARVIS_FIRMWARE_ID) {
+    markerPref.putString("fw_id", JARVIS_FIRMWARE_ID);
+    Serial.println("[NVS][MIGRATION] Firmware marker updated; all existing WiFi/JARVIS settings preserved.");
+  } else {
+    Serial.println("[NVS][BOOT] Firmware marker matches; saved settings preserved.");
+  }
+  markerPref.end();
+  return true;
+}
+
+// ========================= FACTORY RESET =============================
+
+void performFactoryReset() {
+  if (factoryResetExecuting) return;
+  factoryResetExecuting = true;
+
+  Serial.println();
+  Serial.println("[RESET] FACTORY RESET STARTED");
+  Serial.println("[RESET] Stopping motor and all fan TRIAC outputs...");
+  digitalWrite(MOTOR_PIN, LOW);
+  for (int i = 0; i < 4; i++) {
+    applyFanHardware(i, 0);
+    fanEnabled[i] = false;
+    fanSpeed[i] = 0;
+  }
+
+  Serial.println("[RESET] Stopping network services and clearing WiFi driver credentials...");
+  stopDashboardServer();
+  wm.stopConfigPortal();
+  WiFi.persistent(true);
+  wm.resetSettings();
+  WiFi.disconnect(true, true);
+  pref.end();
+
+  if (!eraseEntireNvsPartition("user requested physical BOOT-button factory reset")) {
+    Serial.println("[RESET][FATAL] NVS erase failed; controller will restart but old data may remain.");
+  } else {
+    Serial.println("[RESET][OK] WiFi credentials and all JARVIS NVS settings erased.");
+    Preferences resetMarker;
+    if (resetMarker.begin("jarvis_sys", false)) {
+      resetMarker.putString("fw_id", JARVIS_FIRMWARE_ID);
+      resetMarker.end();
+      Serial.println("[RESET][OK] Firmware marker restored; next boot will NOT erase again.");
+    } else {
+      Serial.println("[RESET][WARN] Could not restore firmware marker; first-boot setup may repeat once.");
+    }
+  }
+  Serial.println("[RESET] Restarting into fresh Jarvis_AP WiFi setup...");
+  delay(500);
+  ESP.restart();
+}
+
+void serviceFactoryReset() {
+  if (factoryResetExecuting) return;
+
+  if (factoryResetRequested) {
+    if (millis() - factoryResetRequestAt >= 1200UL) performFactoryReset();
+    return;
+  }
+
+  // Hold the board BOOT button (GPIO0) continuously for 8 seconds after the ESP32 has finished booting.
+  if (digitalRead(FACTORY_RESET_PIN) == LOW) {
+    if (factoryResetButtonPressedAt == 0) {
+      factoryResetButtonPressedAt = millis();
+      Serial.println("[RESET] BOOT button held. Keep holding for 8 seconds to factory reset.");
+    } else if (millis() - factoryResetButtonPressedAt >= 8000UL) {
+      Serial.println("[RESET] 8-second BOOT hold confirmed.");
+      performFactoryReset();
+    }
+  } else {
+    factoryResetButtonPressedAt = 0;
+  }
+}
+
+// ========================= WIFIMANAGER ===============================
+
+void savePreferences();
+
+void captureWiFiManagerParameters() {
+  if (!wm_mqtt_host) return;
+
+  mqttHost = wm_mqtt_host->getValue();
+  int parsedMqttPort = atoi(wm_mqtt_port->getValue());
+  mqttPort = (uint16_t)((parsedMqttPort >= 1 && parsedMqttPort <= 65535) ? parsedMqttPort : 1883);
+  mqttUser = wm_mqtt_user->getValue();
+  String submittedMqttPass = wm_mqtt_pass->getValue();
+  if (submittedMqttPass.length() > 0) mqttPass = submittedMqttPass;
+  haHost = wm_ha_host->getValue();
+  int parsedHaPort = atoi(wm_ha_port->getValue());
+  haPort = (uint16_t)((parsedHaPort >= 1 && parsedHaPort <= 65535) ? parsedHaPort : 8123);
+  haName = wm_ha_name->getValue();
+  haDeviceId = wm_ha_id->getValue();
+
+  mqttHost.trim();
+  mqttUser.trim();
+  haHost.trim();
+  haName.trim();
+  haDeviceId.trim();
+
+  if (mqttHost.length() == 0) mqttHost = "homeassistant.local";
+  if (mqttPort == 0) mqttPort = 1883;
+  if (haPort == 0) haPort = 8123;
+  if (haName.length() == 0) haName = "Jarvis Fan System";
+  if (haDeviceId.length() == 0) haDeviceId = "jarvis_fan_system_final";
+}
+
+void wifiCredentialsSubmitCallback() {
+  // This is called BEFORE WiFiManager attempts authentication. It is NOT a
+  // save callback: do not write credentials or claim success here.
+  Serial.println("[WiFi][SUBMIT] New SSID/password received from the standard WiFiManager portal.");
+  Serial.println("[WiFi][AUTH] Waiting for the router authentication and DHCP/IP result. Password hidden.");
+  wifiCredentialsSubmitted = true;
+  wifiGotIpEvent = false;
+  wifiSaveCheckPending = false;
+}
+
+void saveConfigCallback() {
+  // WiFiManager calls this after connectWifi() succeeds (unless configured to
+  // save without connecting; this firmware keeps that option at its default).
+  // Defer our NVS writes until GOT_IP and the active SSID are verified below.
+  Serial.println("[WiFi][AUTH][OK] WiFiManager reports successful connection to the submitted network.");
+  wifiSaveCheckPending = true;
+  wifiSaveCheckAt = millis();
+  shouldSaveConfig = false;
+}
+
+void createWiFiManagerParameters() {
+  if (wifiPortalParametersAdded) return;
+
+  char mqttPortBuf[8];
+  char haPortBuf[8];
+  snprintf(mqttPortBuf, sizeof(mqttPortBuf), "%u", mqttPort);
+  snprintf(haPortBuf, sizeof(haPortBuf), "%u", haPort);
+
+  wm_mqtt_host = new WiFiManagerParameter("mqtt_host", "MQTT Host", mqttHost.c_str(), 64);
+  wm_mqtt_port = new WiFiManagerParameter("mqtt_port", "MQTT Port", mqttPortBuf, 6);
+  wm_mqtt_user = new WiFiManagerParameter("mqtt_user", "MQTT Username", mqttUser.c_str(), 64);
+  wm_mqtt_pass = new WiFiManagerParameter("mqtt_pass", "MQTT Password (leave blank to keep current)", "", 64, "type='password' autocomplete='new-password'");
+  wm_ha_host = new WiFiManagerParameter("ha_host", "Home Assistant Host/IP", haHost.c_str(), 64);
+  wm_ha_port = new WiFiManagerParameter("ha_port", "Home Assistant Port", haPortBuf, 6);
+  wm_ha_name = new WiFiManagerParameter("ha_name", "HA Device Name", haName.c_str(), 64);
+  wm_ha_id = new WiFiManagerParameter("ha_id", "HA Device ID", haDeviceId.c_str(), 64);
+
+  wm.addParameter(wm_mqtt_host);
+  wm.addParameter(wm_mqtt_port);
+  wm.addParameter(wm_mqtt_user);
+  wm.addParameter(wm_mqtt_pass);
+  wm.addParameter(wm_ha_host);
+  wm.addParameter(wm_ha_port);
+  wm.addParameter(wm_ha_name);
+  wm.addParameter(wm_ha_id);
+  wifiPortalParametersAdded = true;
+}
+
+void refreshWiFiManagerParameters() {
+  if (!wifiPortalParametersAdded) return;
+  char mqttPortBuf[8];
+  char haPortBuf[8];
+  snprintf(mqttPortBuf, sizeof(mqttPortBuf), "%u", mqttPort);
+  snprintf(haPortBuf, sizeof(haPortBuf), "%u", haPort);
+  if (wm_mqtt_host) wm_mqtt_host->setValue(mqttHost.c_str(), 64);
+  if (wm_mqtt_port) wm_mqtt_port->setValue(mqttPortBuf, 6);
+  if (wm_mqtt_user) wm_mqtt_user->setValue(mqttUser.c_str(), 64);
+  if (wm_mqtt_pass) wm_mqtt_pass->setValue("", 64); // Never expose stored secrets in the portal HTML.
+  if (wm_ha_host) wm_ha_host->setValue(haHost.c_str(), 64);
+  if (wm_ha_port) wm_ha_port->setValue(haPortBuf, 6);
+  if (wm_ha_name) wm_ha_name->setValue(haName.c_str(), 64);
+  if (wm_ha_id) wm_ha_id->setValue(haDeviceId.c_str(), 64);
+}
+
+void startWiFiManagerPortal() {
+  createWiFiManagerParameters();
+  refreshWiFiManagerParameters();
+
+  WiFi.persistent(true);
+  WiFi.setAutoReconnect(false);
+  WiFi.mode(WIFI_STA);
+  WiFi.setMinSecurity(WIFI_AUTH_WPA_PSK);
+  WiFi.setScanMethod(WIFI_ALL_CHANNEL_SCAN);
+  WiFi.setSortMethod(WIFI_CONNECT_AP_BY_SIGNAL);
+  Serial.println("[WiFi][SECURITY] Minimum auth threshold=WPA-PSK (WPA/WPA2 Personal accepted; OPEN/WEP rejected).");
+
+  wm.setDebugOutput(false);
+  wm.setCleanConnect(false);
+  wm.setConnectTimeout(20);
+  wm.setConnectRetries(3);
+  wm.setSaveConnect(true);
+  wm.setBreakAfterConfig(false);
+  wm.setWiFiAutoReconnect(false);
+  wm.setConfigPortalBlocking(false);
+  wm.setPreSaveConfigCallback(wifiCredentialsSubmitCallback);
+  wm.setSaveConfigCallback(saveConfigCallback);
+  wm.setConfigPortalTimeout(0);
+
+  String savedSsid = wm.getWiFiSSID(true);
+  String savedPassword = wm.getWiFiPass(true);
+  savedSsid.trim();
+  if (savedSsid.length() > 0) {
+    Serial.print("[WiFi][NVS][LOAD][OK] Saved SSID loaded: '");
+    Serial.print(savedSsid);
+    Serial.println("'. Password value hidden.");
+    Serial.println("[WiFi][START] Connecting with saved credentials; setup portal LOCKED.");
+    wifiDisconnectedSince = millis();
+    lastWiFiReconnectAttempt = millis();
+    wifiReconnectAttempts = 0;
+    wifiGotIpEvent = false;
+    WiFi.setMinSecurity(WIFI_AUTH_WPA_PSK);
+    WiFi.begin(savedSsid.c_str(), savedPassword.c_str());
+    Serial.println("[WiFi][START] STA connection initiated; DHCP result will be monitored asynchronously.");
+  } else if (wifiEverConnected) {
+    Serial.println("[WiFi][PORTAL][LOCKED] Provisioned device has no readable SSID. No automatic portal; physical BOOT factory reset required.");
+    wifiDisconnectedSince = millis();
+    lastWiFiReconnectAttempt = millis();
+  } else {
+    Serial.println("[WiFi][NVS][EMPTY] First-time setup/factory reset: opening secured Jarvis_AP.");
+    bool started = wm.startConfigPortal("Jarvis_AP", "JarvisSetup26");
+    configPortalRunning = wm.getConfigPortalActive();
+    Serial.printf("[WiFi][PORTAL] startConfigPortal returned=%s active=%s\\n",
+                  started ? "true" : "false", configPortalRunning ? "YES" : "NO");
+    if (configPortalRunning) {
+      Serial.print("[WiFi][PORTAL] AP IP: ");
+      Serial.println(WiFi.softAPIP());
+    }
+  }
+  client.setServer(mqttHost.c_str(), mqttPort);
+}
+
+void startWiFiPortalFromDashboard() {
+  // This function is called only from wifiTask(), after the dashboard
+  // request handler has returned and released its current HTTP transaction.
+  if (configPortalRunning) return;
+  if (wifiEverConnected || wm.getWiFiSSID(true).length() > 0) {
+    Serial.println("[WiFi][PORTAL][BLOCKED] Provisioned/saved device. Portal is locked until physical factory reset.");
+    return;
+  }
+
+  Serial.println("[WiFi][PORTAL] Starting first-time setup portal.");
+  stopDashboardServer();
+  refreshWiFiManagerParameters();
+  WiFi.persistent(true);
+  WiFi.setAutoReconnect(false);
+  WiFi.mode(WIFI_STA);
+  WiFi.setMinSecurity(WIFI_AUTH_WPA_PSK);
+  WiFi.setScanMethod(WIFI_ALL_CHANNEL_SCAN);
+  WiFi.setSortMethod(WIFI_CONNECT_AP_BY_SIGNAL);
+  Serial.println("[WiFi][SECURITY] Portal STA threshold set to WPA-PSK.");
+  wifiPortalManual = true;
+  wm.setDebugOutput(false);
+  wm.setCleanConnect(false);
+  wm.setConnectTimeout(20);
+  wm.setConnectRetries(3);
+  wm.setSaveConnect(true);
+  wm.setBreakAfterConfig(false);
+  wm.setWiFiAutoReconnect(false);
+  wm.setConfigPortalBlocking(false);
+  wm.setPreSaveConfigCallback(wifiCredentialsSubmitCallback);
+  wm.setSaveConfigCallback(saveConfigCallback);
+  wm.setConfigPortalTimeout(0);
+
+  bool started = wm.startConfigPortal("Jarvis_AP", "JarvisSetup26");
+  configPortalRunning = wm.getConfigPortalActive();
+  lastPortalStartAttempt = millis();
+  Serial.print("[WiFi][PORTAL] startConfigPortal returned: ");
+  Serial.println(started ? "true" : "false (non-blocking start may still be active)");
+  Serial.print("[WiFi][PORTAL] Active: ");
+  Serial.println(configPortalRunning ? "YES" : "NO");
+  if (configPortalRunning) {
+    Serial.print("[WiFi][PORTAL] AP IP: ");
+    Serial.println(WiFi.softAPIP());
+  }
+}
+
+void wifiTask() {
+  if (wifiDisconnectEventPending) {
+    wifiDisconnectEventPending = false;
+    const uint8_t reason = wifiEventDisconnectReason;
+    Serial.printf("[WiFi][ERROR] Disconnected reason=%u (%s)\n", reason, wifiDisconnectReasonText(reason));
+    if (reason == 210 || reason == 211) Serial.println("[WiFi][HINT] Try 2.4GHz WPA2-Personal AES; WPA3-only/Enterprise is not supported by this profile.");
+    else if (reason == 201) Serial.println("[WiFi][HINT] Check exact SSID, hidden network, 2.4GHz band and signal.");
+  }
+  if (wifiLostIpEventPending) {
+    wifiLostIpEventPending = false;
+    Serial.println("[WiFi][ERROR] DHCP/IP lost; treating link as disconnected.");
+  }
+
+  // A dashboard request only sets this flag. Stop its server and start
+  // WiFiManager here, outside the WebServer request callback.
+  if (wifiPortalStartRequested && !configPortalRunning) {
+    wifiPortalStartRequested = false;
+    startWiFiPortalFromDashboard();
+  }
+
+  if (configPortalRunning) {
+    stopDashboardServer();
+    wm.process();
+    bool stillActive = wm.getConfigPortalActive();
+    if (!stillActive) {
+      Serial.println("[WiFi][PORTAL] Portal closed; releasing port 80.");
+      configPortalRunning = false;
+      wifiPortalManual = false;
+      if (!wifiSaveCheckPending) wifiCredentialsSubmitted = false;
+    }
+  }
+
+  if (wifiSaveCheckPending) {
+    const bool hasValidIP = (WiFi.status() == WL_CONNECTED &&
+                             wifiGotIpEvent &&
+                             WiFi.localIP() != IPAddress(0, 0, 0, 0));
+
+    if (hasValidIP) {
+      const String connectedSSID = WiFi.SSID();
+      const String storedSSID = wm.getWiFiSSID(true);
+      const String storedPassword = wm.getWiFiPass(true);
+
+      if (connectedSSID.length() > 0 && connectedSSID == storedSSID) {
+        if (!wifiEverConnected) {
+          wifiEverConnected = true;
+          pref.putBool("wifi_ok", true);
+          Serial.println("[WiFi][NVS][OK] First successful IP saved; portal now locked until physical factory reset.");
+        }
+        // WiFiManager has authenticated the submitted password and the STA
+        // has received an IP. Only now persist the other portal parameters.
+        captureWiFiManagerParameters();
+        savePreferences();
+        client.disconnect();
+        client.setServer(mqttHost.c_str(), mqttPort);
+
+        wifiSaveCheckPending = false;
+        wifiCredentialsSubmitted = false;
+        wifiPortalManual = false;
+        wifiDisconnectedSince = 0;
+        wifiReconnectAttempts = 0;
+        lastWiFiReconnectAttempt = 0;
+
+        Serial.print("[WiFi][VERIFY][OK] Connected SSID verified: '");
+        Serial.print(connectedSSID);
+        Serial.println("'");
+        Serial.print("[WiFi][VERIFY][OK] Saved password present: ");
+        Serial.println(storedPassword.length() > 0 ? "YES (value hidden)" : "NO / OPEN NETWORK");
+        Serial.println("[WiFi][SAVE][OK] New WiFi credentials are authenticated and stored by ESP32 WiFi NVS.");
+        Serial.println("[NVS][SAVE][OK] MQTT/HA portal parameters saved after WiFi verification.");
+      } else if (millis() - wifiSaveCheckAt >= WIFI_SAVE_VERIFY_TIMEOUT_MS) {
+        wifiSaveCheckPending = false;
+        wifiCredentialsSubmitted = false;
+        Serial.println("[WiFi][VERIFY][FAIL] Connected SSID does not match WiFiManager's saved SSID. Application settings were not committed.");
+        wifiPortalManual = false;
+        wifiDisconnectedSince = millis();
+        lastWiFiReconnectAttempt = millis();
+        Serial.println("[WiFi][RETRY] Saved credentials retained; portal remains locked.");
+      }
+    } else if (millis() - wifiSaveCheckAt >= WIFI_SAVE_VERIFY_TIMEOUT_MS) {
+      wifiSaveCheckPending = false;
+      wifiCredentialsSubmitted = false;
+      Serial.println("[WiFi][VERIFY][FAIL] No valid DHCP/IP connection after WiFiManager save callback. Application settings were not committed.");
+      wifiPortalManual = false;
+      wifiDisconnectedSince = millis();
+      lastWiFiReconnectAttempt = millis();
+      Serial.println("[WiFi][RETRY] Saved credentials retained; portal remains locked.");
+    }
+  }
+
+  const bool hasUsableIP = (WiFi.status() == WL_CONNECTED && wifiGotIpEvent &&
+                            WiFi.localIP() != IPAddress(0, 0, 0, 0));
+  if (hasUsableIP) {
+    if (!wifiEverConnected) {
+      wifiEverConnected = true;
+      pref.putBool("wifi_ok", true);
+      Serial.println("[WiFi][NVS][OK] First successful IP saved; portal locked until physical factory reset.");
+    }
+    wifiDisconnectedSince = 0;
+    wifiReconnectAttempts = 0;
+    lastWiFiReconnectAttempt = 0;
+    if (configPortalRunning && !wifiPortalManual &&
+        !wifiCredentialsSubmitted && !wifiSaveCheckPending) {
+      wm.stopConfigPortal();
+      configPortalRunning = false;
+    }
+    if (!configPortalRunning) startDashboardServer();
+    if (!otaStarted) setupOTA();
+    return;
+  }
+
+  if (configPortalRunning) return; // WiFiManager exclusively owns STA while portal is active.
+
+  if (wifiDisconnectedSince == 0) {
+    wifiDisconnectedSince = millis();
+    lastWiFiReconnectAttempt = millis();
+    wifiReconnectAttempts = 0;
+  }
+
+  // Saved credentials are never discarded and provisioning is never opened
+  // because a router is offline or authentication/DHCP temporarily fails.
+  // Retry forever at a fixed interval until GOT_IP is received.
+  if (millis() - lastWiFiReconnectAttempt >= WIFI_RECONNECT_INTERVAL_MS) {
+    lastWiFiReconnectAttempt = millis();
+    if (wifiReconnectAttempts < 255) wifiReconnectAttempts++;
+    Serial.print("[WiFi][RETRY] Saved-profile reconnect attempt #");
+    Serial.println(wifiReconnectAttempts);
+    String ssid = wm.getWiFiSSID(true);
+    String password = wm.getWiFiPass(true);
+    if (ssid.length() > 0) {
+      WiFi.disconnect(false, false);
+      WiFi.setMinSecurity(WIFI_AUTH_WPA_PSK);
+      WiFi.begin(ssid.c_str(), password.c_str());
+    } else {
+      Serial.println("[WiFi][ERROR] No saved SSID found; portal remains locked unless factory reset is performed.");
+    }
+    return;
+  }
+}
+
+// ========================= OTA ======================================
+
+void setupOTA() {
+  if (otaStarted) return;
+  ArduinoOTA.setHostname("jarvis-fan-system");
+  const char *otaPassword = (mqttPass.length() >= 8) ? mqttPass.c_str() : "JarvisOTA-ChangeMe";
+  ArduinoOTA.setPassword(otaPassword);
+  Serial.println("[OTA][SECURITY] OTA password authentication enabled; change default MQTT/OTA credentials after setup.");
+
+  ArduinoOTA.onStart([]() {
+    // Stop moving/high-current loads before flash erase/write begins.
+    digitalWrite(MOTOR_PIN, LOW);
+    lastMotorState = false;
+    pref.putBool("m_st", false);
+    for (int i = 0; i < 4; i++) {
+      applyFanHardware(i, 0);
+    }
+  });
+
+  ArduinoOTA.begin();
+  otaStarted = true;
+  Serial.println("[OTA][OK] OTA service started after Wi-Fi received a valid IP.");
+}
+
+// ========================= RESET DIAGNOSTICS ========================
+
+const char* resetReasonText(esp_reset_reason_t reason) {
+  switch (reason) {
+    case ESP_RST_POWERON: return "POWER_ON";
+    case ESP_RST_EXT: return "EXTERNAL_RESET";
+    case ESP_RST_SW: return "SOFTWARE_RESET";
+    case ESP_RST_PANIC: return "PANIC/GURU_MEDITATION";
+    case ESP_RST_INT_WDT: return "INTERRUPT_WATCHDOG";
+    case ESP_RST_TASK_WDT: return "TASK_WATCHDOG";
+    case ESP_RST_WDT: return "OTHER_WATCHDOG";
+    case ESP_RST_DEEPSLEEP: return "DEEP_SLEEP_WAKE";
+    case ESP_RST_BROWNOUT: return "BROWNOUT/LOW_SUPPLY";
+    case ESP_RST_SDIO: return "SDIO_RESET";
+    default: return "UNKNOWN_RESET";
+  }
+}
+
+// ========================= SETUP ====================================
+
+void setup() {
+  Serial.begin(115200);
+  delay(300);
+  Serial.println();
+  const esp_reset_reason_t bootResetReason = esp_reset_reason();
+  Serial.printf("[RESET][CAUSE] code=%d name=%s\n", (int)bootResetReason, resetReasonText(bootResetReason));
+  Serial.println("[BOOT] JARVIS AC FAN + WATER CONTROLLER v2026.11 R6 starting...");
+  Serial.println("[BOOT] Serial diagnostics enabled at 115200 baud.");
+
+  pinMode(STATUS_LED_PIN, OUTPUT);
+  digitalWrite(STATUS_LED_PIN, LOW);
+  pinMode(FACTORY_RESET_PIN, INPUT_PULLUP);
+  WiFi.onEvent(onWiFiEvent);
+
+  Serial2.begin(
+    9600,
+    SERIAL_8N1,
+    PZEM_RX_PIN,
+    PZEM_TX_PIN
+  );
+
+  // Outputs must start OFF before the rest of the system comes online.
+  pinMode(FAN1_TRIAC_PIN, OUTPUT);
+  pinMode(FAN2_TRIAC_PIN, OUTPUT);
+  pinMode(FAN3_TRIAC_PIN, OUTPUT);
+  pinMode(FAN4_TRIAC_PIN, OUTPUT);
+
+  digitalWrite(FAN1_TRIAC_PIN, LOW);
+  digitalWrite(FAN2_TRIAC_PIN, LOW);
+  digitalWrite(FAN3_TRIAC_PIN, LOW);
+  digitalWrite(FAN4_TRIAC_PIN, LOW);
+
+  configureZcInput(0);
+  configureZcInput(1);
+  configureZcInput(2);
+  configureZcInput(3);
+
+  pinMode(PIRPIN, INPUT);
+  pinMode(TRIG_PIN, OUTPUT);
+  pinMode(ECHO_PIN, INPUT);
+  pinMode(MOTOR_PIN, OUTPUT);
+
+  digitalWrite(MOTOR_PIN, LOW);
+
+  // Firmware changes preserve NVS. Only the physical factory-reset handler
+  // is permitted to erase saved WiFi and application settings.
+  const bool nvsReadyForThisFirmware = prepareFreshSetupForFirmwareVersion();
+  if (nvsReadyForThisFirmware && pref.begin("jarvis_sys", false)) {
+    loadPreferences();
+    Serial.println("[NVS][LOAD][OK] Current firmware settings loaded.");
+  } else {
+    Serial.println("[NVS][LOAD][SKIP] Preferences unavailable; old application settings will not be loaded.");
+  }
+
+  dht.begin();
+
+  Wire.begin(I2C_SDA_PIN, I2C_SCL_PIN);
+
+  Serial.println("[BMP] Scanning I2C addresses 0x76 and 0x77...");
+  if (bmp.begin(0x76)) {
+    bmpAvailable = true;
+    Serial.println("[BMP][OK] BMP280 detected at 0x76.");
+  } else if (bmp.begin(0x77)) {
+    bmpAvailable = true;
+    Serial.println("[BMP][OK] BMP280 detected at 0x77.");
+  } else {
+    bmpAvailable = false;
+    Serial.println("[BMP][ERROR] No BMP280 response at 0x76 or 0x77.");
+    Serial.println("[BMP][CHECK] Check 3.3V, GND, SDA=GPIO21, SCL=GPIO22, wiring and sensor type.");
+  }
+
+  // ESP32 Arduino 3.x timer API. A 50 us tick limits scheduler ISR rate
+  // to 20 kHz; GPIO writes in the ISR use direct registers.
+  triacTimer = timerBegin(1000000);
+  if (triacTimer) {
+    timerAttachInterrupt(triacTimer, &triacTimerISR);
+    timerAlarm(triacTimer, TRIAC_TIMER_TICK_US, true, 0);
+    triacTimerReady = true;
+    Serial.println("[TRIAC][OK] 50 us hardware scheduler started.");
+  } else {
+    triacTimerReady = false;
+    Serial.println("[TRIAC][FATAL] Timer init failed; fan outputs will remain disabled.");
+  }
+
+  applyZcInterrupts();
+
+  // WiFi first: saved credentials connect directly; only an empty NVS profile
+  // (fresh install or physical factory reset) is allowed to start the portal.
+  WiFi.mode(WIFI_STA);
+  startWiFiManagerPortal();
+
+  client.setServer(mqttHost.c_str(), mqttPort);
+  client.setCallback(callback);
+  client.setBufferSize(2048);
+  client.setSocketTimeout(2);
+  client.setKeepAlive(30);
+
+  setupWebServer();
+
+  // Initialize stored output states without publishing before MQTT.
+  restoreOutputs();
+
+  // Keep the ESP32 framework's idle-task watchdog, but do NOT subscribe the
+  // Arduino loopTask to the short task watchdog. This loop performs synchronous
+  // sensor and network-library calls; a 5-second loopTask timeout can reboot
+  // the board even when the hardware is healthy. Idle-task WDT still detects
+  // a CPU that is genuinely starved.
+  esp_err_t loopWdtStatus = esp_task_wdt_status(NULL);
+  Serial.printf("[WDT][INFO] loopTask subscription status=%d; custom loopTask subscription disabled; framework idle watchdog retained.\n",
+                (int)loopWdtStatus);
+
+  Serial.println();
+  Serial.println("======================================");
+  Serial.println("JARVIS AC FAN SYSTEM READY");
+  Serial.println("Phase-angle TRIAC control enabled");
+  Serial.println("STATUS LED: GPIO2 (SOLID ON = Wi-Fi connected with valid IP; BLINK = Wi-Fi disconnected)");
+  Serial.println("FACTORY RESET: hold BOOT/GPIO0 continuously for 8 seconds after startup (physical button only).");
+  Serial.print("WiFi status: ");
+  if (WiFi.status() == WL_CONNECTED) {
+    Serial.print("CONNECTED SSID='"); Serial.print(WiFi.SSID());
+    Serial.print("' IP="); Serial.println(WiFi.localIP());
+  } else if (configPortalRunning) {
+    Serial.println("SETUP PORTAL ACTIVE (first setup / physical factory reset only)");
+  } else {
+    Serial.println("STA DISCONNECTED; SAVED CREDENTIAL RETRY ACTIVE; PORTAL LOCKED");
+  }
+  Serial.println("ZC profiles:");
+  for (int i = 0; i < 4; i++) {
+    Serial.print("  FAN");
+    Serial.print(i + 1);
+    Serial.print(": ");
+    Serial.print(zcProfileName(zcProfile[i]));
+    Serial.print("  offset=");
+    Serial.print(zcTimingOffsetUs[i]);
+    Serial.println("us");
+  }
+  Serial.print("Auto mains timing: ");
+  Serial.println(AUTO_MEASURE_MAINS_FREQUENCY ? "YES" : "NO");
+  Serial.println("======================================");
+}
+
+// ========================= LOOP =====================================
+
+void publishZeroCrossStates() {
+  if (!client.connected()) return;
+
+  static bool lastZcState[4] = {false, false, false, false};
+  if (zcStatePublishPending) {
+    for (int i = 0; i < 4; i++) {
+      bool state = fanZeroCrossHealthy(i);
+      client.publish(
+        ("jarvis/status/" + fanUIDs[i] + "/zc").c_str(),
+        state ? "OK" : "FAULT",
+        true
+      );
+      lastZcState[i] = state;
+    }
+    zcStatePublishPending = false;
+    return;
+  }
+
+  for (int i = 0; i < 4; i++) {
+    bool state = fanZeroCrossHealthy(i);
+
+    if (state != lastZcState[i]) {
+      client.publish(
+        ("jarvis/status/" + fanUIDs[i] + "/zc").c_str(),
+        state ? "OK" : "FAULT",
+        true
+      );
+
+      lastZcState[i] = state;
+    }
+  }
+}
+
+void sensorTask() {
+  if (digitalRead(MOTOR_PIN) == HIGH && motorRunStartedAt != 0 &&
+      millis() - motorRunStartedAt >= MOTOR_MAX_CONTINUOUS_RUN_MS) {
+    digitalWrite(MOTOR_PIN, LOW);
+    motorRunStartedAt = 0;
+    motorRunTimeoutLatched = true;
+    pref.putBool("m_st", false);
+    lastMotorState = false;
+    if (client.connected()) client.publish("jarvis/status/motor", "OFF", true);
+    Serial.println("[MOTOR][SAFETY] Maximum continuous runtime reached; pump forced OFF and restart latched until tank reaches stop threshold.");
+  }
+  if (millis() - lastSensorRead < 5000) return;
+
+  lastSensorRead = millis();
+
+  long dist = getDistance();
+
+  // A missing/invalid echo must never be interpreted as a full tank.
+  // Keep the pump OFF until a valid water-level reading is available.
+  if (dist < 2 || dist > 400) {
+    waterLevelValid = false;
+    // Invalid water-level data is fail-safe for the pump, but must not
+    // prevent temperature, power, PIR and pressure sensors from updating.
+    if (digitalRead(MOTOR_PIN) == HIGH) {
+      digitalWrite(MOTOR_PIN, LOW);
+      motorRunStartedAt = 0;
+      pref.putBool("m_st", false);
+      lastMotorState = false;
+      if (client.connected()) client.publish("jarvis/status/motor", "OFF", true);
+    }
+  } else {
+    waterLevelValid = true;
+    lastWaterReadingAt = millis();
+    if (tank_empty_dist <= tank_full_dist) {
+      tank_empty_dist = 110;
+      tank_full_dist = 10;
+    }
+
+    int pct = constrain(map(dist, tank_empty_dist, tank_full_dist, 0, 100), 0, 100);
+
+    if (abs(pct - lastWater) >= 1) {
+      lastWater = pct;
+      if (client.connected()) client.publish("jarvis/sensor/water_pct", String(pct).c_str(), true);
+    }
+
+    // Automatic hysteresis: start at/below low threshold; stop at/above high threshold.
+    if (pct >= motor_stop_pct) motorRunTimeoutLatched = false;
+    if (pct >= motor_stop_pct && digitalRead(MOTOR_PIN) == HIGH) {
+      digitalWrite(MOTOR_PIN, LOW);
+      motorRunStartedAt = 0;
+      pref.putBool("m_st", false);
+      lastMotorState = false;
+      if (client.connected()) client.publish("jarvis/status/motor", "OFF", true);
+    }
+    else if (pct <= motor_start_pct && digitalRead(MOTOR_PIN) == LOW && !motorRunTimeoutLatched) {
+      digitalWrite(MOTOR_PIN, HIGH);
+      motorRunStartedAt = millis();
+      pref.putBool("m_st", true);
+      lastMotorState = true;
+      if (client.connected()) client.publish("jarvis/status/motor", "ON", true);
+    }
+  }
+
+  float v = pzem.voltage();
+
+  if (!isnan(v)) {
+    float c = pzem.current();
+    float p = pzem.power();
+
+    if (abs(v - lastVolt) > 0.5) {
+      if (client.connected()) {
+        client.publish(
+          "jarvis/sensor/volt",
+          String(v, 1).c_str(),
+          true
+        );
+      }
+      lastVolt = v;
+    }
+
+    if (!isnan(c)) {
+      if (client.connected()) {
+        client.publish(
+          "jarvis/sensor/curr",
+          String(c, 2).c_str(),
+          true
+        );
+      }
+      lastCurrent = c;
+    }
+
+    if (!isnan(p)) {
+      if (client.connected()) {
+        client.publish(
+          "jarvis/sensor/pwr",
+          String(p, 1).c_str(),
+          true
+        );
+      }
+      lastPower = p;
+    }
+  }
+
+  float t = dht.readTemperature();
+  float h = dht.readHumidity();
+
+  if (!isnan(t)) {
+    if (abs(t - lastTemp) > 0.2) {
+      if (client.connected()) {
+        client.publish(
+          "jarvis/sensor/temp",
+          String(t, 1).c_str(),
+          true
+        );
+      }
+      lastTemp = t;
+    }
+  }
+
+  if (!isnan(h)) {
+    if (abs(h - lastHum) > 0.5) {
+      if (client.connected()) {
+        client.publish(
+          "jarvis/sensor/hum",
+          String(h, 1).c_str(),
+          true
+        );
+      }
+      lastHum = h;
+    }
+  }
+
+  bool pir = digitalRead(PIRPIN);
+
+  if (pir != lastPir) {
+    if (client.connected()) {
+      client.publish(
+        "jarvis/sensor/pir",
+        pir ? "ON" : "OFF",
+        true
+      );
+    }
+
+    lastPir = pir;
+  }
+
+  if (bmpAvailable) {
+    float pressure = bmp.readPressure() / 100.0F;
+
+    if (!isnan(pressure) && abs(pressure - lastPressure) > 0.5) {
+      if (client.connected()) {
+        client.publish(
+          "jarvis/sensor/pressure",
+          String(pressure, 1).c_str(),
+          true
+        );
+      }
+
+      lastPressure = pressure;
+    }
+  }
+}
+
+void loop() {
+  // loopTask is intentionally not subscribed to task WDT; do not call
+  // esp_task_wdt_reset() here. Calling it for an unregistered task causes
+  // repeated "task not found" diagnostics on ESP32 Arduino.
+  serviceFactoryReset();
+  serviceStatusLed();
+  serviceConnectionDiagnostics();
+
+  // Handle a pending dashboard /wifi request before changing HTTP servers.
+  if (dashboardServerRunning) server.handleClient();
+  wifiTask();
+
+  if (otaStarted) ArduinoOTA.handle();
+  mqttTask();
+  serviceFanPersistence();
+
+  publishZeroCrossStates();
+
+  sensorTask();
+
+  delay(1);
+}
