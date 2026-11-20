@@ -1,0 +1,2889 @@
+
+/*
+  ================================================================
+                 JARVIS V4 - COMPACT CORRECTED FIRMWARE
+  ================================================================
+
+  BOARD       : ESP32
+  mDNS        : jarvis-v4.local
+  Dashboard   : HTTP 80
+  WiFi Portal : JARVIS-V4-SETUP / 192.168.4.1
+  MQTT        : homeassistant.local:1883
+
+  WIFI:
+  - Dedicated wildcard DNS and captive portal HTTP server.
+  - WiFiManager never competes for HTTP port 80.
+  - WPA2/WPA3 router compatibility; no restrictive security floor.
+  - WiFi modem power save disabled (WIFI_PS_NONE) for handshake stability.
+  - Submitted credentials retained in RAM until WiFi connection succeeds.
+  - WiFi and MQTT settings saved and verified in NVS after connection.
+  - Saved credentials loaded explicitly on boot and reconnect.
+  - Disconnect reason codes reported on Serial.
+
+  HARDWARE:
+  - GPIO2 WiFi status LED: ON=connected, blink=portal, OFF=offline.
+  - Main gate locks only after confirmed Close Limit.
+  - Close timeout stops motor and never activates the lock.
+  - Local inputs and gate state machine run before networking.
+  - BOOT held for five seconds triggers factory reset.
+  ================================================================
+*/
+
+#include <Arduino.h>
+#include <WiFi.h>
+#include <WiFiManager.h>
+#include <Preferences.h>
+#include <PubSubClient.h>
+#include <WebServer.h>
+#include <DNSServer.h>
+#include <ESPmDNS.h>
+#include <esp_wifi.h>
+#include <ctype.h>
+
+// ================================================================
+// CONFIGURATION
+// ================================================================
+
+static const uint16_t FIRMWARE_CONFIG_SCHEMA = 2;
+
+#define DEVICE_ID              "jarvis_v4"
+#define DEVICE_NAME            "Jarvis Home System"
+#define DEVICE_MODEL           "ESP32-V4"
+#define DEVICE_MANUF           "Liton Tech"
+
+#define MQTT_DEFAULT_HOST      "homeassistant.local"
+#define MQTT_DEFAULT_PORT      1883
+#define MQTT_DEFAULT_USER      "esp32"
+#define MQTT_KEEPALIVE         15
+
+#ifndef MQTT_SOCKET_TIMEOUT
+#define MQTT_SOCKET_TIMEOUT   1
+#endif
+
+#define WIFI_RETRY_INTERVAL          12000UL
+#define WIFI_PORTAL_FALLBACK         30000UL
+#define WIFI_PORTAL_RETRY_INTERVAL    5000UL
+#define WIFI_PORTAL_LED_INTERVAL       500UL
+#define MQTT_RETRY_INTERVAL           5000UL
+
+#define GATE_UNLOCK_WAIT_MS          1500UL
+#define GATE_MOTOR_TIMEOUT_MS       25000UL
+#define GATE_CLOSE_LOCK_WAIT_MS      2000UL
+
+#define INPUT_DEBOUNCE_TIME            50UL
+#define BELL_DEBOUNCE_TIME             50UL
+#define FACTORY_RESET_HOLD_TIME      5000UL
+#define FACTORY_RESET_DEBOUNCE_TIME    50UL
+#define RESTART_DELAY                 700UL
+
+#define PORTAL_DNS_PORT                53
+#define PORTAL_SAVE_RECONNECT_DELAY  1500UL
+
+// On ESP32 dev boards, the onboard LED on GPIO2 is typically ACTIVE-HIGH.
+// Set to true if an external active-low LED circuit is wired.
+#define STATUS_LED_ACTIVE_LOW         false
+
+// ================================================================
+// GPIO PIN ASSIGNMENTS
+// ================================================================
+
+static const uint8_t PIN_GATE_FWD       = 12;
+static const uint8_t PIN_GATE_REV       = 13;
+
+static const uint8_t PIN_LOCK_MAIN      = 14;
+static const uint8_t PIN_LOCK_BD1       = 21;
+static const uint8_t PIN_LOCK_BALCONY   = 19;
+static const uint8_t PIN_LOCK_BD2       = 17;
+
+static const uint8_t PIN_BUTTON_GATE    = 33;
+static const uint8_t PIN_BUTTON_BD1     = 4;
+static const uint8_t PIN_BUTTON_BALCONY = 23;
+static const uint8_t PIN_BUTTON_BD2     = 16;
+
+static const uint8_t PIN_OPTO_MAIN      = 34;
+static const uint8_t PIN_OPTO_BD1       = 35;
+static const uint8_t PIN_OPTO_BALCONY   = 36;
+static const uint8_t PIN_OPTO_BD2       = 39;
+
+static const uint8_t PIN_BELL_MAIN      = 18;
+static const uint8_t PIN_BELL_BD1       = 22;
+static const uint8_t PIN_BELL_BALCONY   = 25;
+static const uint8_t PIN_BELL_BD2       = 32;
+
+static const uint8_t PIN_LIMIT_OPEN     = 27;
+static const uint8_t PIN_LIMIT_CLOSE    = 26;
+
+static const uint8_t PIN_WIFI_LED       = 2;
+static const uint8_t PIN_FACTORY_RESET  = 0;
+
+// ================================================================
+// OBJECTS
+// ================================================================
+
+WiFiClient wifiClient;
+PubSubClient mqttClient(wifiClient);
+
+WebServer server(80);
+WebServer portalServer(80);
+DNSServer portalDNS;
+
+WiFiManager wifiManager;
+Preferences preferences;
+
+// ================================================================
+// STRUCTURES / CONFIGURATION DATA
+// ================================================================
+
+struct CommandResult {
+  bool ok;
+  String message;
+};
+
+struct DeviceConfig {
+  String mqttHost;
+  uint16_t mqttPort;
+  String mqttUser;
+  String mqttPassword;
+  String deviceName;
+};
+
+struct DebouncedInput {
+  uint8_t pin;
+  bool activeLow;
+  bool stableState;
+  bool lastRawState;
+  uint32_t changedAt;
+};
+
+DeviceConfig config;
+
+static char mqttHostBuffer[128] = "homeassistant.local";
+static char mqttPortBuffer[8] = "1883";
+static char mqttUserBuffer[64] = "esp32";
+static char mqttPasswordBuffer[128] = "";
+static char deviceNameBuffer[64] = "Jarvis Home System";
+
+WiFiManagerParameter mqttHostParameter(
+  "mqtt_host", "MQTT Server", mqttHostBuffer, sizeof(mqttHostBuffer)
+);
+WiFiManagerParameter mqttPortParameter(
+  "mqtt_port", "MQTT Port", mqttPortBuffer, sizeof(mqttPortBuffer)
+);
+WiFiManagerParameter mqttUserParameter(
+  "mqtt_user", "MQTT Username", mqttUserBuffer, sizeof(mqttUserBuffer)
+);
+WiFiManagerParameter mqttPasswordParameter(
+  "mqtt_password", "MQTT Password",
+  mqttPasswordBuffer, sizeof(mqttPasswordBuffer)
+);
+WiFiManagerParameter deviceNameParameter(
+  "device_name", "Device Name",
+  deviceNameBuffer, sizeof(deviceNameBuffer)
+);
+
+// ================================================================
+// SYSTEM FLAGS / TIMERS
+// ================================================================
+
+bool wifiPortalStarted = false;
+bool wifiConnectionStarted = false;
+bool wifiHasSavedCredentials = false;
+bool wifiDriverReady = false;
+bool wifiWasConnected = false;
+bool wifiFallbackTriggered = false;
+
+bool mdnsStarted = false;
+bool dashboardServerStarted = false;
+
+bool mqttConnected = false;
+bool discoveryPublished = false;
+
+bool factoryResetTriggered = false;
+bool factoryResetButtonPressed = false;
+bool factoryResetRawState = false;
+
+bool restartPending = false;
+bool wifiPortalStartRequested = false;
+bool wifiLedState = false;
+
+bool portalReconnectPending = false;
+bool portalReconnectStarted = false;
+bool pendingCredentialsValid = false;
+
+uint32_t restartAt = 0;
+uint32_t factoryResetPressAt = 0;
+uint32_t factoryResetRawChangedAt = 0;
+
+uint32_t wifiConnectStartedAt = 0;
+uint32_t lastWiFiAttempt = 0;
+uint32_t lastPortalAttempt = 0;
+uint32_t lastMQTTAttempt = 0;
+uint32_t wifiLedChangedAt = 0;
+uint32_t portalReconnectAt = 0;
+
+String savedWiFiSSID;
+String savedWiFiPassword;
+
+String pendingWiFiSSID;
+String pendingWiFiPassword;
+DeviceConfig pendingConfig;
+
+// ================================================================
+// MQTT TOPICS
+// ================================================================
+
+String mqttBaseTopic;
+String mqttAvailabilityTopic;
+
+const String discoveryPrefix = "homeassistant";
+
+String topicForCommand(const char *id) {
+  return mqttBaseTopic + "/" + String(id) + "/cmd";
+}
+
+String topicForState(const char *id) {
+  return mqttBaseTopic + "/" + String(id) + "/state";
+}
+
+String topicForBell(const char *id) {
+  return mqttBaseTopic + "/" + String(id) + "/bell";
+}
+
+// ================================================================
+// LOCKS
+// ================================================================
+
+const char *lockIds[4] = {
+  "mainlock", "bd1", "blc", "bd2"
+};
+
+const char *lockNames[4] = {
+  "Main Door", "Bedroom 1", "Balcony", "Bedroom 2"
+};
+
+const uint8_t lockPins[4] = {
+  PIN_LOCK_MAIN,
+  PIN_LOCK_BD1,
+  PIN_LOCK_BALCONY,
+  PIN_LOCK_BD2
+};
+
+bool lockStates[4] = { true, true, true, true };
+bool optoStates[4] = { false, false, false, false };
+bool bellStates[4] = { false, false, false, false };
+
+// ================================================================
+// GATE STATE MACHINE
+// ================================================================
+
+enum GateState : uint8_t {
+  GATE_IDLE,
+  GATE_OPEN_UNLOCK_WAIT,
+  GATE_OPENING,
+  GATE_CLOSING,
+  GATE_CLOSE_LOCK_WAIT,
+  GATE_FAULT
+};
+
+GateState gateState = GATE_IDLE;
+
+uint32_t gateStateStartedAt = 0;
+uint32_t gateMotorStartedAt = 0;
+
+bool gateMotorRunning = false;
+bool gateOpenLimit = false;
+bool gateCloseLimit = false;
+
+String gateFaultMessage;
+
+// ================================================================
+// INPUTS
+// ================================================================
+
+DebouncedInput localButtons[4] = {
+  { PIN_BUTTON_GATE, true, false, false, 0 },
+  { PIN_BUTTON_BD1, true, false, false, 0 },
+  { PIN_BUTTON_BALCONY, true, false, false, 0 },
+  { PIN_BUTTON_BD2, true, false, false, 0 }
+};
+
+DebouncedInput statusOptos[4] = {
+  { PIN_OPTO_MAIN, true, false, false, 0 },
+  { PIN_OPTO_BD1, true, false, false, 0 },
+  { PIN_OPTO_BALCONY, true, false, false, 0 },
+  { PIN_OPTO_BD2, true, false, false, 0 }
+};
+
+DebouncedInput bellOptos[4] = {
+  { PIN_BELL_MAIN, true, false, false, 0 },
+  { PIN_BELL_BD1, true, false, false, 0 },
+  { PIN_BELL_BALCONY, true, false, false, 0 },
+  { PIN_BELL_BD2, true, false, false, 0 }
+};
+
+// ================================================================
+// PROTOTYPES
+// ================================================================
+
+bool elapsed(uint32_t now, uint32_t since, uint32_t duration);
+bool updateDebouncedInput(DebouncedInput &input, uint32_t now, uint32_t debounceTime);
+
+String htmlEscape(const String &input);
+String jsonEscape(const String &input);
+bool isValidMQTTPort(const String &value, uint16_t &result);
+bool isValidWiFiPassword(const String &password);
+
+void initializeWiFiDriver();
+bool eraseWiFiCredentials();
+void checkFirmwareConfigurationSchema();
+
+bool isGateOpenLimitActive();
+bool isGateCloseLimitActive();
+void stopGateMotor();
+void cancelGateTimers();
+
+void serviceGateStateMachine();
+void serviceLocalButtons();
+void serviceStatusOptocouplers();
+void serviceCallingBells();
+
+void serviceWiFi();
+void setStatusLed(bool on);
+void serviceWiFiStatusLED();
+void serviceWiFiPortal();
+void serviceMQTT();
+void serviceScheduledRestart();
+
+void factoryResetAllSettings();
+void startWiFiPortal();
+void stopWiFiPortal();
+
+void mqttCallback(char *topic, byte *payload, unsigned int length);
+void onWiFiEvent(WiFiEvent_t event, WiFiEventInfo_t info);
+
+void configureWebServer();
+void startDashboardServer();
+void stopDashboardServer();
+
+bool setLockOutput(uint8_t index, bool locked);
+void applySavedLockStates();
+
+String dashboardHTML();
+String settingsHTML();
+String portalHTML();
+
+void configurePortalServer();
+void handlePortalRoot();
+void handlePortalSave();
+void handlePortalNotFound();
+void handlePortalRedirect();
+
+void copyConfigToBuffers();
+bool readWiFiManagerParameters();
+void configureWiFiManager();
+
+// ================================================================
+// COMMON HELPERS
+// ================================================================
+
+bool elapsed(uint32_t now, uint32_t since, uint32_t duration) {
+  return (uint32_t)(now - since) >= duration;
+}
+
+String htmlEscape(const String &input) {
+  String output;
+  output.reserve(input.length() + 16);
+
+  for (size_t i = 0; i < input.length(); i++) {
+    switch (input[i]) {
+      case '&':  output += "&amp;"; break;
+      case '<':  output += "&lt;"; break;
+      case '>':  output += "&gt;"; break;
+      case '"':  output += "&quot;"; break;
+      case '\'': output += "&#39;"; break;
+      default: output += input[i]; break;
+    }
+  }
+
+  return output;
+}
+
+String jsonEscape(const String &input) {
+  String output;
+  output.reserve(input.length() + 16);
+
+  for (size_t i = 0; i < input.length(); i++) {
+    char c = input[i];
+
+    switch (c) {
+      case '"':  output += "\\\""; break;
+      case '\\': output += "\\\\"; break;
+      case '\b': output += "\\b"; break;
+      case '\f': output += "\\f"; break;
+      case '\n': output += "\\n"; break;
+      case '\r': output += "\\r"; break;
+      case '\t': output += "\\t"; break;
+      default:
+        if ((uint8_t)c < 0x20) output += ' ';
+        else output += c;
+        break;
+    }
+  }
+
+  return output;
+}
+
+bool isValidMQTTPort(const String &value, uint16_t &result) {
+  if (value.length() == 0 || value.length() > 5) return false;
+
+  for (size_t i = 0; i < value.length(); i++) {
+    if (!isdigit((unsigned char)value[i])) return false;
+  }
+
+  unsigned long port = value.toInt();
+  if (port < 1 || port > 65535) return false;
+
+  result = (uint16_t)port;
+  return true;
+}
+
+bool isValidWiFiPassword(const String &password) {
+  if (password.length() == 0) return true;
+
+  if (password.length() >= 8 && password.length() <= 63)
+    return true;
+
+  if (password.length() == 64) {
+    for (size_t i = 0; i < password.length(); i++) {
+      if (!isxdigit((unsigned char)password[i])) return false;
+    }
+    return true;
+  }
+
+  return false;
+}
+
+// ================================================================
+// NVS STORAGE
+// ================================================================
+
+bool clearPreferencesNamespace(const char *nameSpace) {
+  if (!preferences.begin(nameSpace, false)) {
+    Serial.printf("[NVS] Cannot open namespace: %s\n", nameSpace);
+    return false;
+  }
+
+  bool result = preferences.clear();
+  preferences.end();
+
+  Serial.printf("[NVS] Clear %s: %s\n",
+                nameSpace, result ? "OK" : "FAILED");
+  return result;
+}
+
+bool saveWiFiCredentials(const String &ssid, const String &password) {
+  if (ssid.length() == 0 || ssid.length() > 32 || password.length() > 64) {
+    Serial.println("[NVS] Invalid WiFi credentials; not saved");
+    return false;
+  }
+
+  if (!preferences.begin("jarvis_wifi", false)) {
+    Serial.println("[NVS] Cannot open jarvis_wifi");
+    return false;
+  }
+
+  size_t ssidWritten = preferences.putString("ssid", ssid);
+  size_t passWritten = preferences.putString("password", password);
+
+  String verifySSID = preferences.getString("ssid", "");
+  String verifyPassword = preferences.getString("password", "");
+
+  preferences.end();
+
+  bool success =
+    (ssidWritten > 0) &&
+    (password.length() == 0 || passWritten > 0) &&
+    (verifySSID == ssid) &&
+    (verifyPassword == password);
+
+  Serial.println(success
+    ? "[NVS] WiFi credentials saved and verified"
+    : "[NVS] ERROR: WiFi credential save/verify failed");
+
+  return success;
+}
+
+bool loadWiFiCredentials() {
+  savedWiFiSSID = "";
+  savedWiFiPassword = "";
+
+  if (!preferences.begin("jarvis_wifi", true)) {
+    Serial.println("[NVS] Cannot read jarvis_wifi");
+    return false;
+  }
+
+  savedWiFiSSID = preferences.getString("ssid", "");
+  savedWiFiPassword = preferences.getString("password", "");
+
+  preferences.end();
+
+  if (savedWiFiSSID.length() == 0 || savedWiFiSSID.length() > 32 ||
+      savedWiFiPassword.length() > 64) {
+    savedWiFiSSID = "";
+    savedWiFiPassword = "";
+    Serial.println("[NVS] No valid saved WiFi credentials");
+    return false;
+  }
+
+  Serial.print("[NVS] Saved WiFi SSID loaded: ");
+  Serial.println(savedWiFiSSID);
+  Serial.println("[NVS] WiFi password loaded: [HIDDEN]");
+  return true;
+}
+
+bool saveConfiguration(const DeviceConfig &data) {
+  if (!preferences.begin("jarvis_config", false)) {
+    Serial.println("[NVS] Cannot open jarvis_config");
+    return false;
+  }
+
+  size_t hostWritten = preferences.putString("mqtt_host", data.mqttHost);
+  size_t portWritten = preferences.putUShort("mqtt_port", data.mqttPort);
+  size_t userWritten = preferences.putString("mqtt_user", data.mqttUser);
+  size_t passWritten = preferences.putString("mqtt_pass", data.mqttPassword);
+  size_t nameWritten = preferences.putString("device_name", data.deviceName);
+
+  bool verified =
+    preferences.getString("mqtt_host", "") == data.mqttHost &&
+    preferences.getUShort("mqtt_port", 0) == data.mqttPort &&
+    preferences.getString("mqtt_user", "") == data.mqttUser &&
+    preferences.getString("mqtt_pass", "") == data.mqttPassword &&
+    preferences.getString("device_name", "") == data.deviceName;
+
+  preferences.end();
+
+  bool success =
+    (hostWritten > 0) &&
+    (portWritten > 0) &&
+    (nameWritten > 0) &&
+    (data.mqttUser.length() == 0 || userWritten > 0) &&
+    (data.mqttPassword.length() == 0 || passWritten > 0) &&
+    verified;
+
+  Serial.println(success
+    ? "[NVS] MQTT configuration saved and verified"
+    : "[NVS] ERROR: MQTT configuration save/verify failed");
+
+  return success;
+}
+
+void loadConfiguration() {
+  config.mqttHost = MQTT_DEFAULT_HOST;
+  config.mqttPort = MQTT_DEFAULT_PORT;
+  config.mqttUser = MQTT_DEFAULT_USER;
+  config.mqttPassword = "";
+  config.deviceName = DEVICE_NAME;
+
+  if (!preferences.begin("jarvis_config", true)) {
+    Serial.println("[NVS] Cannot read configuration; using defaults");
+    return;
+  }
+
+  String host = preferences.getString("mqtt_host", MQTT_DEFAULT_HOST);
+  uint16_t port = preferences.getUShort("mqtt_port", MQTT_DEFAULT_PORT);
+  String user = preferences.getString("mqtt_user", MQTT_DEFAULT_USER);
+  String password = preferences.getString("mqtt_pass", "");
+  String name = preferences.getString("device_name", DEVICE_NAME);
+
+  preferences.end();
+
+  if (host.length() > 0 && host.length() < sizeof(mqttHostBuffer))
+    config.mqttHost = host;
+
+  if (port >= 1 && port <= 65535)
+    config.mqttPort = port;
+
+  if (user.length() < sizeof(mqttUserBuffer))
+    config.mqttUser = user;
+
+  if (password.length() < sizeof(mqttPasswordBuffer))
+    config.mqttPassword = password;
+
+  if (name.length() > 0 && name.length() < sizeof(deviceNameBuffer))
+    config.deviceName = name;
+
+  Serial.println("[NVS] MQTT configuration loaded");
+  Serial.printf("[NVS] MQTT host: %s\n", config.mqttHost.c_str());
+  Serial.printf("[NVS] MQTT port: %u\n", config.mqttPort);
+  Serial.printf("[NVS] MQTT user: %s\n", config.mqttUser.c_str());
+  Serial.printf("[NVS] Device name: %s\n", config.deviceName.c_str());
+  Serial.println("[NVS] MQTT password: [HIDDEN]");
+}
+
+void saveLockStates() {
+  if (!preferences.begin("jarvis_v4_final", false)) {
+    Serial.println("[NVS] Cannot save lock states");
+    return;
+  }
+
+  bool success =
+    preferences.putBool("mainlock", lockStates[0]) > 0 &&
+    preferences.putBool("bd1", lockStates[1]) > 0 &&
+    preferences.putBool("blc", lockStates[2]) > 0 &&
+    preferences.putBool("bd2", lockStates[3]) > 0;
+
+  preferences.end();
+
+  Serial.println(success
+    ? "[NVS] Lock states saved"
+    : "[NVS] Lock state save failed");
+}
+
+void loadLockStates() {
+  if (!preferences.begin("jarvis_v4_final", true)) {
+    Serial.println("[NVS] Cannot read lock states; using safe defaults");
+    return;
+  }
+
+  lockStates[0] = preferences.getBool("mainlock", true);
+  lockStates[1] = preferences.getBool("bd1", true);
+  lockStates[2] = preferences.getBool("blc", true);
+  lockStates[3] = preferences.getBool("bd2", true);
+
+  preferences.end();
+  Serial.println("[NVS] Lock states loaded");
+}
+
+// ================================================================
+// WIFI DRIVER / RESET / SCHEMA MIGRATION
+// ================================================================
+
+void initializeWiFiDriver() {
+  if (wifiDriverReady) return;
+
+  Serial.println("[WiFi] Initializing driver...");
+  WiFi.persistent(false);
+  WiFi.mode(WIFI_STA);
+  esp_wifi_set_ps(WIFI_PS_NONE);
+  wifiDriverReady = true;
+
+  Serial.println("[WiFi] Driver initialized (WIFI_PS_NONE active)");
+}
+
+bool eraseWiFiCredentials() {
+  Serial.println("[WiFi] Erasing WiFi credentials...");
+
+  if (!wifiDriverReady)
+    initializeWiFiDriver();
+
+  WiFi.disconnect(false, true);
+
+  esp_err_t result = esp_wifi_restore();
+
+  if (result == ESP_OK)
+    Serial.println("[WiFi] ESP WiFi configuration restored");
+  else
+    Serial.printf("[WiFi] esp_wifi_restore code: %d\n", (int)result);
+
+  clearPreferencesNamespace("jarvis_wifi");
+
+  WiFi.mode(WIFI_STA);
+  savedWiFiSSID = "";
+  savedWiFiPassword = "";
+
+  return (result == ESP_OK || result == ESP_ERR_WIFI_NOT_INIT);
+}
+
+void checkFirmwareConfigurationSchema() {
+  Serial.println("[MIGRATION] Checking configuration schema...");
+
+  uint16_t storedSchema = 0;
+
+  if (preferences.begin("jarvis_meta", true)) {
+    storedSchema = preferences.getUShort("schema", 0);
+    preferences.end();
+  }
+
+  Serial.printf("[MIGRATION] Stored=%u Firmware=%u\n",
+                storedSchema, FIRMWARE_CONFIG_SCHEMA);
+
+  if (storedSchema == FIRMWARE_CONFIG_SCHEMA) {
+    Serial.println("[MIGRATION] Schema matches");
+    return;
+  }
+
+  // On first boot with new schema, stamp schema marker without wiping user data
+  if (storedSchema == 0) {
+    Serial.println("[MIGRATION] Initializing schema marker...");
+    if (preferences.begin("jarvis_meta", false)) {
+      preferences.putUShort("schema", FIRMWARE_CONFIG_SCHEMA);
+      preferences.end();
+      Serial.println("[MIGRATION] Initial schema registered");
+    }
+    return;
+  }
+
+  // Upgrading from an incompatible older schema version
+  Serial.println("[MIGRATION] Clearing old configuration...");
+
+  bool configCleared = clearPreferencesNamespace("jarvis_config");
+  bool locksCleared = clearPreferencesNamespace("jarvis_v4_final");
+  bool wifiCleared = eraseWiFiCredentials();
+
+  if (!configCleared || !locksCleared || !wifiCleared) {
+    Serial.println("[MIGRATION] Cleanup failed; schema unchanged");
+    return;
+  }
+
+  if (preferences.begin("jarvis_meta", false)) {
+    size_t written = preferences.putUShort("schema", FIRMWARE_CONFIG_SCHEMA);
+    preferences.end();
+    Serial.println(written > 0
+      ? "[MIGRATION] New schema saved"
+      : "[MIGRATION] Schema save failed");
+  }
+}
+
+// ================================================================
+// LOCK HARDWARE
+// ================================================================
+
+bool setLockOutput(uint8_t index, bool locked) {
+  if (index >= 4) return false;
+
+  if (index == 0 && locked && !isGateCloseLimitActive()) {
+    Serial.println("[LOCK] Main lock rejected: Close Limit inactive");
+
+    if (mqttClient.connected()) {
+      mqttClient.publish(
+        (mqttBaseTopic + "/mainlock/error").c_str(),
+        "CLOSE_LIMIT_NOT_ACTIVE",
+        false
+      );
+    }
+
+    return false;
+  }
+
+  digitalWrite(lockPins[index], locked ? HIGH : LOW);
+  lockStates[index] = locked;
+  saveLockStates();
+
+  Serial.printf("[LOCK] %s -> %s\n",
+                lockNames[index], locked ? "LOCKED" : "UNLOCKED");
+
+  if (mqttClient.connected()) {
+    mqttClient.publish(
+      topicForState(lockIds[index]).c_str(),
+      locked ? "LOCKED" : "UNLOCKED",
+      true
+    );
+  }
+
+  return true;
+}
+
+void applySavedLockStates() {
+  for (uint8_t i = 0; i < 4; i++) {
+    bool requestedState = lockStates[i];
+
+    if (i == 0 && requestedState && !isGateCloseLimitActive()) {
+      requestedState = false;
+      lockStates[i] = false;
+      Serial.println("[LOCK] Main lock state rejected: Close Limit inactive");
+    }
+
+    digitalWrite(lockPins[i], requestedState ? HIGH : LOW);
+  }
+
+  if (!lockStates[0])
+    saveLockStates();
+}
+
+// ================================================================
+// GATE HARDWARE / STATE MACHINE
+// ================================================================
+
+bool isGateOpenLimitActive() {
+  return digitalRead(PIN_LIMIT_OPEN) == LOW;
+}
+
+bool isGateCloseLimitActive() {
+  return digitalRead(PIN_LIMIT_CLOSE) == LOW;
+}
+
+void stopGateMotor() {
+  digitalWrite(PIN_GATE_FWD, LOW);
+  digitalWrite(PIN_GATE_REV, LOW);
+  gateMotorRunning = false;
+}
+
+void cancelGateTimers() {
+  gateStateStartedAt = 0;
+  gateMotorStartedAt = 0;
+}
+
+void publishGateState(const char *state) {
+  if (mqttClient.connected()) {
+    mqttClient.publish(
+      (mqttBaseTopic + "/gate/state").c_str(),
+      state,
+      true
+    );
+  }
+}
+
+void setGateFault(const String &reason) {
+  stopGateMotor();
+  gateState = GATE_FAULT;
+  gateFaultMessage = reason;
+  cancelGateTimers();
+
+  Serial.printf("[GATE] FAULT: %s\n", reason.c_str());
+
+  if (mqttClient.connected()) {
+    mqttClient.publish(
+      (mqttBaseTopic + "/gate/fault").c_str(),
+      reason.c_str(),
+      true
+    );
+  }
+
+  publishGateState("FAULT");
+}
+
+void beginGateOpen() {
+  stopGateMotor();
+  cancelGateTimers();
+  gateFaultMessage = "";
+
+  gateOpenLimit = isGateOpenLimitActive();
+  gateCloseLimit = isGateCloseLimitActive();
+
+  if (gateOpenLimit && gateCloseLimit) {
+    setGateFault("LIMIT_SWITCH_CONFLICT");
+    return;
+  }
+
+  if (gateOpenLimit) {
+    gateState = GATE_IDLE;
+    publishGateState("OPEN");
+    Serial.println("[GATE] Already open");
+    return;
+  }
+
+  if (!setLockOutput(0, false)) {
+    setGateFault("MAIN_LOCK_RELEASE_FAILED");
+    return;
+  }
+
+  gateState = GATE_OPEN_UNLOCK_WAIT;
+  gateStateStartedAt = millis();
+
+  Serial.println("[GATE] Unlock wait started");
+  publishGateState("UNLOCKING");
+}
+
+void beginGateClose() {
+  stopGateMotor();
+  cancelGateTimers();
+  gateFaultMessage = "";
+
+  gateOpenLimit = isGateOpenLimitActive();
+  gateCloseLimit = isGateCloseLimitActive();
+
+  if (gateOpenLimit && gateCloseLimit) {
+    setGateFault("LIMIT_SWITCH_CONFLICT");
+    return;
+  }
+
+  if (gateCloseLimit) {
+    gateState = GATE_CLOSE_LOCK_WAIT;
+    gateStateStartedAt = millis();
+
+    Serial.println("[GATE] Close Limit active; lock wait started");
+    publishGateState("CLOSE_WAIT_LOCK");
+    return;
+  }
+
+  gateState = GATE_CLOSING;
+  gateMotorStartedAt = millis();
+
+  digitalWrite(PIN_GATE_FWD, LOW);
+  digitalWrite(PIN_GATE_REV, HIGH);
+  gateMotorRunning = true;
+
+  Serial.println("[GATE] Closing motor started");
+  publishGateState("CLOSING");
+}
+
+void stopGateOperation() {
+  stopGateMotor();
+  cancelGateTimers();
+  gateState = GATE_IDLE;
+
+  Serial.println("[GATE] Operation stopped");
+  publishGateState("STOPPED");
+}
+
+void serviceGateStateMachine() {
+  uint32_t now = millis();
+
+  gateOpenLimit = isGateOpenLimitActive();
+  gateCloseLimit = isGateCloseLimitActive();
+
+  if (gateOpenLimit && gateCloseLimit) {
+    if (gateState != GATE_FAULT)
+      setGateFault("LIMIT_SWITCH_CONFLICT");
+    return;
+  }
+
+  switch (gateState) {
+    case GATE_IDLE:
+      break;
+
+    case GATE_OPEN_UNLOCK_WAIT:
+      if (elapsed(now, gateStateStartedAt, GATE_UNLOCK_WAIT_MS)) {
+        if (gateOpenLimit) {
+          gateState = GATE_IDLE;
+          cancelGateTimers();
+          publishGateState("OPEN");
+          break;
+        }
+
+        digitalWrite(PIN_GATE_REV, LOW);
+        digitalWrite(PIN_GATE_FWD, HIGH);
+
+        gateMotorRunning = true;
+        gateMotorStartedAt = now;
+        gateState = GATE_OPENING;
+
+        Serial.println("[GATE] Opening motor started");
+        publishGateState("OPENING");
+      }
+      break;
+
+    case GATE_OPENING:
+      if (gateOpenLimit) {
+        stopGateMotor();
+        cancelGateTimers();
+        gateState = GATE_IDLE;
+
+        Serial.println("[GATE] Open Limit confirmed");
+        publishGateState("OPEN");
+        break;
+      }
+
+      if (elapsed(now, gateMotorStartedAt, GATE_MOTOR_TIMEOUT_MS))
+        setGateFault("OPEN_TIMEOUT");
+      break;
+
+    case GATE_CLOSING:
+      if (gateCloseLimit) {
+        stopGateMotor();
+        gateState = GATE_CLOSE_LOCK_WAIT;
+        gateStateStartedAt = now;
+
+        Serial.println("[GATE] Close Limit confirmed; motor stopped");
+        publishGateState("CLOSE_WAIT_LOCK");
+        break;
+      }
+
+      if (elapsed(now, gateMotorStartedAt, GATE_MOTOR_TIMEOUT_MS))
+        setGateFault("CLOSE_TIMEOUT");
+      break;
+
+    case GATE_CLOSE_LOCK_WAIT:
+      if (!gateCloseLimit) {
+        setGateFault("CLOSE_LIMIT_LOST");
+        break;
+      }
+
+      if (elapsed(now, gateStateStartedAt, GATE_CLOSE_LOCK_WAIT_MS)) {
+        if (isGateCloseLimitActive()) {
+          if (setLockOutput(0, true)) {
+            gateState = GATE_IDLE;
+            cancelGateTimers();
+
+            Serial.println("[GATE] Closed and locked");
+            publishGateState("CLOSED_LOCKED");
+          } else {
+            setGateFault("MAIN_LOCK_ACTIVATION_FAILED");
+          }
+        } else {
+          setGateFault("CLOSE_LIMIT_LOST_BEFORE_LOCK");
+        }
+      }
+      break;
+
+    case GATE_FAULT:
+      stopGateMotor();
+      break;
+  }
+}
+
+// ================================================================
+// HARDWARE COMMAND EXECUTION
+// ================================================================
+
+CommandResult executeHardwareByID(
+  const String &deviceID,
+  const String &command
+) {
+  String id = deviceID;
+  String cmd = command;
+
+  id.trim();
+  cmd.trim();
+  id.toLowerCase();
+  cmd.toUpperCase();
+
+  if (id == "gate" || id == "maingate") {
+    if (cmd == "ON" || cmd == "OPEN") {
+      beginGateOpen();
+      return { true, "Gate opening command processed" };
+    }
+
+    if (cmd == "OFF" || cmd == "CLOSE") {
+      beginGateClose();
+      return { true, "Gate closing command processed" };
+    }
+
+    if (cmd == "STOP") {
+      stopGateOperation();
+      return { true, "Gate stopped" };
+    }
+
+    return { false, "Invalid gate command" };
+  }
+
+  int lockIndex = -1;
+
+  for (uint8_t i = 0; i < 4; i++) {
+    if (id == lockIds[i]) {
+      lockIndex = i;
+      break;
+    }
+  }
+
+  if (lockIndex < 0)
+    return { false, "Unknown device ID" };
+
+  if (cmd == "LOCK") {
+    bool result = setLockOutput((uint8_t)lockIndex, true);
+    return result
+      ? CommandResult{ true, "Lock accepted" }
+      : CommandResult{ false, "Lock rejected by safety interlock" };
+  }
+
+  if (cmd == "UNLOCK") {
+    bool result = setLockOutput((uint8_t)lockIndex, false);
+    return result
+      ? CommandResult{ true, "Unlock accepted" }
+      : CommandResult{ false, "Unlock failed" };
+  }
+
+  return { false, "Invalid lock command" };
+}
+
+// ================================================================
+// INPUT DEBOUNCE / LOCAL BUTTONS
+// ================================================================
+
+bool updateDebouncedInput(
+  DebouncedInput &input,
+  uint32_t now,
+  uint32_t debounceTime
+) {
+  bool raw = digitalRead(input.pin);
+
+  bool active = input.activeLow
+    ? raw == LOW
+    : raw == HIGH;
+
+  if (active != input.lastRawState) {
+    input.lastRawState = active;
+    input.changedAt = now;
+  }
+
+  if (elapsed(now, input.changedAt, debounceTime) &&
+      input.stableState != active) {
+    input.stableState = active;
+    return true;
+  }
+
+  return false;
+}
+
+void serviceLocalButtons() {
+  uint32_t now = millis();
+
+  for (uint8_t i = 0; i < 4; i++) {
+    if (!updateDebouncedInput(
+          localButtons[i], now, INPUT_DEBOUNCE_TIME
+        )) continue;
+
+    if (!localButtons[i].stableState) continue;
+
+    if (i == 0) {
+      if (gateState == GATE_OPENING ||
+          gateState == GATE_OPEN_UNLOCK_WAIT ||
+          gateOpenLimit) {
+        beginGateClose();
+      } else {
+        beginGateOpen();
+      }
+    } else {
+      setLockOutput(i, !lockStates[i]);
+    }
+  }
+}
+
+// ================================================================
+// STATUS OPTOCOUPLERS
+// ================================================================
+
+void publishOptoState(uint8_t index, bool state) {
+  if (index >= 4 || !mqttClient.connected()) return;
+
+  String topic = mqttBaseTopic + "/" +
+                 String(lockIds[index]) + "/opto";
+
+  mqttClient.publish(topic.c_str(), state ? "ON" : "OFF", true);
+}
+
+void serviceStatusOptocouplers() {
+  uint32_t now = millis();
+
+  for (uint8_t i = 0; i < 4; i++) {
+    if (!updateDebouncedInput(
+          statusOptos[i], now, INPUT_DEBOUNCE_TIME
+        )) continue;
+
+    optoStates[i] = statusOptos[i].stableState;
+
+    Serial.printf("[OPTO] %s %s\n",
+                  lockNames[i],
+                  optoStates[i] ? "ACTIVE" : "INACTIVE");
+
+    publishOptoState(i, optoStates[i]);
+  }
+}
+
+// ================================================================
+// CALLING BELLS
+// ================================================================
+
+void publishBellEvent(uint8_t index) {
+  if (index >= 4 || !mqttClient.connected()) return;
+
+  mqttClient.publish(
+    topicForBell(lockIds[index]).c_str(),
+    "PRESSED",
+    false
+  );
+
+  mqttClient.publish(
+    (mqttBaseTopic + "/events").c_str(),
+    (String("BELL_") + lockIds[index]).c_str(),
+    false
+  );
+}
+
+void serviceCallingBells() {
+  uint32_t now = millis();
+
+  for (uint8_t i = 0; i < 4; i++) {
+    if (!updateDebouncedInput(
+          bellOptos[i], now, BELL_DEBOUNCE_TIME
+        )) continue;
+
+    bellStates[i] = bellOptos[i].stableState;
+
+    if (!bellStates[i]) {
+      if (mqttClient.connected()) {
+        mqttClient.publish(
+          topicForBell(lockIds[i]).c_str(),
+          "RELEASED",
+          false
+        );
+      }
+      continue;
+    }
+
+    Serial.printf("[BELL] %s PRESSED\n", lockNames[i]);
+    publishBellEvent(i);
+
+    if (!lockStates[i])
+      setLockOutput(i, true);
+  }
+}
+
+// ================================================================
+// MQTT COMMAND VALIDATION
+// ================================================================
+
+bool parseMQTTCommandTopic(
+  const String &topic,
+  String &deviceID
+) {
+  String prefix = mqttBaseTopic + "/";
+
+  if (!topic.startsWith(prefix) || !topic.endsWith("/cmd"))
+    return false;
+
+  String middle = topic.substring(
+    prefix.length(), topic.length() - 4
+  );
+
+  if (middle.length() == 0 || middle.indexOf('/') >= 0)
+    return false;
+
+  middle.toLowerCase();
+
+  if (middle != "gate" &&
+      middle != "maingate" &&
+      middle != "mainlock" &&
+      middle != "bd1" &&
+      middle != "blc" &&
+      middle != "bd2") return false;
+
+  deviceID = middle;
+  return true;
+}
+
+void mqttCallback(
+  char *topic,
+  byte *payload,
+  unsigned int length
+) {
+  if (length == 0 || length > 64) {
+    Serial.println("[MQTT] Rejected: invalid payload length");
+    return;
+  }
+
+  String deviceID;
+
+  if (!parseMQTTCommandTopic(String(topic), deviceID)) {
+    Serial.println("[MQTT] Rejected: unknown command topic");
+    return;
+  }
+
+  String command;
+  command.reserve(length + 1);
+
+  for (unsigned int i = 0; i < length; i++) {
+    char c = (char)payload[i];
+
+    if (c == '\0' || (uint8_t)c < 0x20) {
+      Serial.println("[MQTT] Rejected: invalid payload character");
+      return;
+    }
+
+    command += c;
+  }
+
+  command.trim();
+  command.toUpperCase();
+
+  bool valid = false;
+
+  if (deviceID == "gate" || deviceID == "maingate") {
+    valid = command == "ON" || command == "OFF" ||
+            command == "OPEN" || command == "CLOSE" ||
+            command == "STOP";
+  } else {
+    valid = command == "LOCK" || command == "UNLOCK";
+  }
+
+  if (!valid) {
+    Serial.printf("[MQTT] Rejected invalid command: %s\n",
+                  command.c_str());
+    return;
+  }
+
+  CommandResult result = executeHardwareByID(deviceID, command);
+
+  Serial.printf("[MQTT] %s: %s -> %s\n",
+                result.ok ? "Accepted" : "Failed",
+                deviceID.c_str(),
+                command.c_str());
+}
+
+// ================================================================
+// MQTT DISCOVERY
+// ================================================================
+
+bool publishDiscovery(
+  const String &component,
+  const String &objectID,
+  const String &friendlyName,
+  const String &commandTopic,
+  const String &stateTopic,
+  const String &payloadOn,
+  const String &payloadOff
+) {
+  String uniqueID = String(DEVICE_ID) + "_" + objectID;
+
+  String configTopic =
+    discoveryPrefix + "/" + component + "/" +
+    String(DEVICE_ID) + "/" + objectID + "/config";
+
+  String payload;
+  payload.reserve(1000);
+
+  payload += "{";
+  payload += "\"name\":\"" + jsonEscape(friendlyName) + "\",";
+  payload += "\"unique_id\":\"" + jsonEscape(uniqueID) + "\",";
+  payload += "\"object_id\":\"" + jsonEscape(uniqueID) + "\",";
+  payload += "\"command_topic\":\"" + jsonEscape(commandTopic) + "\",";
+  payload += "\"state_topic\":\"" + jsonEscape(stateTopic) + "\",";
+  payload += "\"availability_topic\":\"" + jsonEscape(mqttAvailabilityTopic) + "\",";
+  payload += "\"payload_on\":\"" + jsonEscape(payloadOn) + "\",";
+  payload += "\"payload_off\":\"" + jsonEscape(payloadOff) + "\",";
+  payload += "\"device\":{";
+  payload += "\"identifiers\":[\"" + jsonEscape(String(DEVICE_ID)) + "\"],";
+  payload += "\"name\":\"" + jsonEscape(config.deviceName) + "\",";
+  payload += "\"manufacturer\":\"" + jsonEscape(String(DEVICE_MANUF)) + "\",";
+  payload += "\"model\":\"" + jsonEscape(String(DEVICE_MODEL)) + "\"";
+  payload += "}}";
+
+  bool sent = mqttClient.publish(
+    configTopic.c_str(), payload.c_str(), true
+  );
+
+  if (!sent)
+    Serial.printf("[MQTT] Discovery failed: %s\n", objectID.c_str());
+
+  return sent;
+}
+
+void publishLockDiscovery() {
+  for (uint8_t i = 0; i < 4; i++) {
+    String uniqueID = String(DEVICE_ID) + "_" + lockIds[i];
+
+    String configTopic =
+      discoveryPrefix + "/lock/" + String(DEVICE_ID) +
+      "/" + lockIds[i] + "/config";
+
+    String payload = "{";
+    payload += "\"name\":\"" + jsonEscape(String(lockNames[i])) + "\",";
+    payload += "\"unique_id\":\"" + jsonEscape(uniqueID) + "\",";
+    payload += "\"state_topic\":\"" + jsonEscape(topicForState(lockIds[i])) + "\",";
+    payload += "\"command_topic\":\"" + jsonEscape(topicForCommand(lockIds[i])) + "\",";
+    payload += "\"state_locked\":\"LOCKED\",";
+    payload += "\"state_unlocked\":\"UNLOCKED\",";
+    payload += "\"command_lock\":\"LOCK\",";
+    payload += "\"command_unlock\":\"UNLOCK\",";
+    payload += "\"availability_topic\":\"" + jsonEscape(mqttAvailabilityTopic) + "\",";
+    payload += "\"device\":{";
+    payload += "\"identifiers\":[\"" + String(DEVICE_ID) + "\"],";
+    payload += "\"name\":\"" + jsonEscape(config.deviceName) + "\",";
+    payload += "\"manufacturer\":\"" + String(DEVICE_MANUF) + "\",";
+    payload += "\"model\":\"" + String(DEVICE_MODEL) + "\"";
+    payload += "}}";
+
+    if (!mqttClient.publish(configTopic.c_str(), payload.c_str(), true))
+      Serial.printf("[MQTT] Lock discovery failed: %s\n", lockIds[i]);
+  }
+}
+
+void publishGateDiscovery() {
+  String configTopic =
+    discoveryPrefix + "/cover/" + String(DEVICE_ID) +
+    "/main_gate/config";
+
+  String payload = "{";
+  payload += "\"name\":\"Main Gate\",";
+  payload += "\"unique_id\":\"jarvis_v4_main_gate\",";
+  payload += "\"command_topic\":\"" + jsonEscape(topicForCommand("gate")) + "\",";
+  payload += "\"state_topic\":\"" + jsonEscape(mqttBaseTopic + "/gate/state") + "\",";
+  payload += "\"availability_topic\":\"" + jsonEscape(mqttAvailabilityTopic) + "\",";
+  payload += "\"payload_open\":\"OPEN\",";
+  payload += "\"payload_close\":\"CLOSE\",";
+  payload += "\"payload_stop\":\"STOP\",";
+  payload += "\"state_open\":\"OPEN\",";
+  payload += "\"state_closed\":\"CLOSED_LOCKED\",";
+  payload += "\"state_opening\":\"OPENING\",";
+  payload += "\"state_closing\":\"CLOSING\",";
+  payload += "\"device\":{";
+  payload += "\"identifiers\":[\"" + String(DEVICE_ID) + "\"],";
+  payload += "\"name\":\"" + jsonEscape(config.deviceName) + "\",";
+  payload += "\"manufacturer\":\"" + String(DEVICE_MANUF) + "\",";
+  payload += "\"model\":\"" + String(DEVICE_MODEL) + "\"";
+  payload += "}}";
+
+  mqttClient.publish(configTopic.c_str(), payload.c_str(), true);
+}
+
+void publishBellDiscovery() {
+  for (uint8_t i = 0; i < 4; i++) {
+    String objectID = String(lockIds[i]) + "_bell";
+
+    String configTopic =
+      discoveryPrefix + "/binary_sensor/" +
+      String(DEVICE_ID) + "/" + objectID + "/config";
+
+    String payload = "{";
+    payload += "\"name\":\"" +
+      jsonEscape(String(lockNames[i]) + " Calling Bell") + "\",";
+    payload += "\"unique_id\":\"" +
+      jsonEscape(String(DEVICE_ID) + "_" + objectID) + "\",";
+    payload += "\"state_topic\":\"" +
+      jsonEscape(topicForBell(lockIds[i])) + "\",";
+    payload += "\"payload_on\":\"PRESSED\",";
+    payload += "\"payload_off\":\"RELEASED\",";
+    payload += "\"device_class\":\"occupancy\",";
+    payload += "\"availability_topic\":\"" +
+      jsonEscape(mqttAvailabilityTopic) + "\",";
+    payload += "\"device\":{\"identifiers\":[\"" +
+      String(DEVICE_ID) + "\"],\"name\":\"" +
+      jsonEscape(config.deviceName) + "\"}}";
+
+    mqttClient.publish(configTopic.c_str(), payload.c_str(), true);
+  }
+}
+
+void publishOptoDiscovery() {
+  for (uint8_t i = 0; i < 4; i++) {
+    String objectID = String(lockIds[i]) + "_opto";
+
+    String configTopic =
+      discoveryPrefix + "/binary_sensor/" +
+      String(DEVICE_ID) + "/" + objectID + "/config";
+
+    String stateTopic =
+      mqttBaseTopic + "/" + String(lockIds[i]) + "/opto";
+
+    String payload = "{";
+    payload += "\"name\":\"" +
+      jsonEscape(String(lockNames[i]) + " Status Input") + "\",";
+    payload += "\"unique_id\":\"" +
+      jsonEscape(String(DEVICE_ID) + "_" + objectID) + "\",";
+    payload += "\"state_topic\":\"" + jsonEscape(stateTopic) + "\",";
+    payload += "\"payload_on\":\"ON\",";
+    payload += "\"payload_off\":\"OFF\",";
+    payload += "\"availability_topic\":\"" +
+      jsonEscape(mqttAvailabilityTopic) + "\",";
+    payload += "\"device\":{\"identifiers\":[\"" +
+      String(DEVICE_ID) + "\"],\"name\":\"" +
+      jsonEscape(config.deviceName) + "\"}}";
+
+    mqttClient.publish(configTopic.c_str(), payload.c_str(), true);
+  }
+}
+
+void publishAllDiscovery() {
+  if (!mqttClient.connected()) return;
+
+  Serial.println("[MQTT] Publishing Home Assistant discovery...");
+
+  publishLockDiscovery();
+  publishGateDiscovery();
+  publishBellDiscovery();
+  publishOptoDiscovery();
+
+  discoveryPublished = true;
+  Serial.println("[MQTT] Discovery completed");
+}
+
+void publishAllStates() {
+  if (!mqttClient.connected()) return;
+
+  for (uint8_t i = 0; i < 4; i++) {
+    mqttClient.publish(
+      topicForState(lockIds[i]).c_str(),
+      lockStates[i] ? "LOCKED" : "UNLOCKED",
+      true
+    );
+
+    mqttClient.publish(
+      (mqttBaseTopic + "/" + String(lockIds[i]) + "/opto").c_str(),
+      optoStates[i] ? "ON" : "OFF",
+      true
+    );
+  }
+
+  const char *stateText = "IDLE";
+
+  switch (gateState) {
+    case GATE_OPEN_UNLOCK_WAIT: stateText = "UNLOCKING"; break;
+    case GATE_OPENING:          stateText = "OPENING"; break;
+    case GATE_CLOSING:          stateText = "CLOSING"; break;
+    case GATE_CLOSE_LOCK_WAIT:  stateText = "CLOSE_WAIT_LOCK"; break;
+    case GATE_FAULT:            stateText = "FAULT"; break;
+    default:
+      if (gateOpenLimit) stateText = "OPEN";
+      else if (gateCloseLimit && lockStates[0]) stateText = "CLOSED_LOCKED";
+      else if (gateCloseLimit) stateText = "CLOSED";
+      break;
+  }
+
+  mqttClient.publish(
+    (mqttBaseTopic + "/gate/state").c_str(),
+    stateText,
+    true
+  );
+}
+
+// ================================================================
+// MQTT CONNECTION
+// ================================================================
+
+void configureMQTT() {
+  mqttBaseTopic = String(DEVICE_ID);
+  mqttAvailabilityTopic = mqttBaseTopic + "/availability";
+
+  mqttClient.setServer(config.mqttHost.c_str(), config.mqttPort);
+  mqttClient.setCallback(mqttCallback);
+  mqttClient.setKeepAlive(MQTT_KEEPALIVE);
+  mqttClient.setSocketTimeout(MQTT_SOCKET_TIMEOUT);
+  mqttClient.setBufferSize(2048);
+}
+
+void serviceMQTT() {
+  uint32_t now = millis();
+
+  if (WiFi.status() != WL_CONNECTED) {
+    mqttConnected = false;
+    return;
+  }
+
+  if (mqttClient.connected()) {
+    mqttClient.loop();
+    mqttConnected = true;
+    return;
+  }
+
+  mqttConnected = false;
+  discoveryPublished = false;
+
+  if (!elapsed(now, lastMQTTAttempt, MQTT_RETRY_INTERVAL))
+    return;
+
+  lastMQTTAttempt = now;
+
+  Serial.printf("[MQTT] Connecting to %s:%u\n",
+                config.mqttHost.c_str(), config.mqttPort);
+
+  String clientID =
+    String(DEVICE_ID) + "_" +
+    String((uint32_t)ESP.getEfuseMac(), HEX);
+
+  bool connected;
+
+  if (config.mqttUser.length() > 0) {
+    connected = mqttClient.connect(
+      clientID.c_str(),
+      config.mqttUser.c_str(),
+      config.mqttPassword.c_str(),
+      mqttAvailabilityTopic.c_str(),
+      0,
+      true,
+      "offline"
+    );
+  } else {
+    connected = mqttClient.connect(
+      clientID.c_str(),
+      mqttAvailabilityTopic.c_str(),
+      0,
+      true,
+      "offline"
+    );
+  }
+
+  if (!connected) {
+    Serial.printf("[MQTT] Connection failed. State: %d\n",
+                  mqttClient.state());
+    return;
+  }
+
+  mqttConnected = true;
+  Serial.println("[MQTT] Connected");
+
+  mqttClient.publish(mqttAvailabilityTopic.c_str(), "online", true);
+  mqttClient.subscribe((mqttBaseTopic + "/+/cmd").c_str());
+
+  publishAllDiscovery();
+  publishAllStates();
+}
+
+// ================================================================
+// WIFI MANAGER COMPATIBILITY
+// ================================================================
+
+void copyConfigToBuffers() {
+  strlcpy(mqttHostBuffer, config.mqttHost.c_str(), sizeof(mqttHostBuffer));
+  snprintf(mqttPortBuffer, sizeof(mqttPortBuffer), "%u", config.mqttPort);
+  strlcpy(mqttUserBuffer, config.mqttUser.c_str(), sizeof(mqttUserBuffer));
+  strlcpy(mqttPasswordBuffer, config.mqttPassword.c_str(), sizeof(mqttPasswordBuffer));
+  strlcpy(deviceNameBuffer, config.deviceName.c_str(), sizeof(deviceNameBuffer));
+
+  mqttHostParameter.setValue(mqttHostBuffer, sizeof(mqttHostBuffer));
+  mqttPortParameter.setValue(mqttPortBuffer, sizeof(mqttPortBuffer));
+  mqttUserParameter.setValue(mqttUserBuffer, sizeof(mqttUserBuffer));
+  mqttPasswordParameter.setValue(mqttPasswordBuffer, sizeof(mqttPasswordBuffer));
+  deviceNameParameter.setValue(deviceNameBuffer, sizeof(deviceNameBuffer));
+}
+
+bool readWiFiManagerParameters() {
+  String newHost = mqttHostParameter.getValue();
+  String newPort = mqttPortParameter.getValue();
+  String newUser = mqttUserParameter.getValue();
+  String newPassword = mqttPasswordParameter.getValue();
+  String newDeviceName = deviceNameParameter.getValue();
+
+  newHost.trim();
+  newPort.trim();
+  newUser.trim();
+  newDeviceName.trim();
+
+  uint16_t port = 0;
+
+  if (newHost.length() == 0 ||
+      newHost.length() >= sizeof(mqttHostBuffer) ||
+      !isValidMQTTPort(newPort, port) ||
+      newUser.length() >= sizeof(mqttUserBuffer) ||
+      newPassword.length() >= sizeof(mqttPasswordBuffer) ||
+      newDeviceName.length() == 0 ||
+      newDeviceName.length() >= sizeof(deviceNameBuffer)) {
+    return false;
+  }
+
+  pendingConfig.mqttHost = newHost;
+  pendingConfig.mqttPort = port;
+  pendingConfig.mqttUser = newUser;
+  pendingConfig.mqttPassword = newPassword;
+  pendingConfig.deviceName = newDeviceName;
+
+  return true;
+}
+
+void configureWiFiManager() {
+  // WiFiManager is configured on port 81 to avoid conflict with port 80.
+  wifiManager.setConfigPortalBlocking(false);
+  wifiManager.setConnectTimeout(10);
+  wifiManager.setConfigPortalTimeout(0);
+  wifiManager.setCaptivePortalEnable(true);
+  wifiManager.setHttpPort(81);
+
+  wifiManager.setAPStaticIPConfig(
+    IPAddress(192, 168, 4, 1),
+    IPAddress(192, 168, 4, 1),
+    IPAddress(255, 255, 255, 0)
+  );
+
+  wifiManager.addParameter(&mqttHostParameter);
+  wifiManager.addParameter(&mqttPortParameter);
+  wifiManager.addParameter(&mqttUserParameter);
+  wifiManager.addParameter(&mqttPasswordParameter);
+  wifiManager.addParameter(&deviceNameParameter);
+}
+
+// ================================================================
+// WIFI EVENT HANDLER
+// ================================================================
+
+void onWiFiEvent(WiFiEvent_t event, WiFiEventInfo_t info) {
+  switch (event) {
+    case ARDUINO_EVENT_WIFI_STA_CONNECTED:
+      Serial.println("[WiFi] Access point connected");
+      break;
+
+    case ARDUINO_EVENT_WIFI_STA_GOT_IP:
+      Serial.println("[WiFi] Connected successfully");
+      Serial.printf("[WiFi] IP: %s\n", WiFi.localIP().toString().c_str());
+      Serial.printf("[WiFi] Gateway: %s\n", WiFi.gatewayIP().toString().c_str());
+      Serial.printf("[WiFi] RSSI: %d dBm\n", WiFi.RSSI());
+
+      wifiHasSavedCredentials = true;
+      wifiFallbackTriggered = false;
+      wifiWasConnected = true;
+      break;
+
+    case ARDUINO_EVENT_WIFI_STA_DISCONNECTED:
+      Serial.printf("[WiFi] Disconnected. Reason code: %u\n",
+                    info.wifi_sta_disconnected.reason);
+
+      mqttConnected = false;
+
+      if (wifiWasConnected) {
+        wifiWasConnected = false;
+        wifiConnectStartedAt = millis();
+        wifiFallbackTriggered = false;
+      }
+      break;
+
+    case ARDUINO_EVENT_WIFI_AP_START:
+      Serial.println("[WiFi] Setup AP started: 192.168.4.1");
+      break;
+
+    case ARDUINO_EVENT_WIFI_AP_STOP:
+      Serial.println("[WiFi] Setup AP stopped");
+      break;
+
+    default:
+      break;
+  }
+}
+
+// ================================================================
+// WIFI STATUS LED (GPIO 2)
+// ================================================================
+
+void setStatusLed(bool on) {
+  digitalWrite(PIN_WIFI_LED, (STATUS_LED_ACTIVE_LOW ? !on : on) ? HIGH : LOW);
+}
+
+void serviceWiFiStatusLED() {
+  uint32_t now = millis();
+
+  if (WiFi.status() == WL_CONNECTED) {
+    wifiLedState = true;
+    setStatusLed(true);
+    return;
+  }
+
+  if (wifiPortalStarted) {
+    if (elapsed(now, wifiLedChangedAt, WIFI_PORTAL_LED_INTERVAL)) {
+      wifiLedChangedAt = now;
+      wifiLedState = !wifiLedState;
+    }
+
+    setStatusLed(wifiLedState);
+    return;
+  }
+
+  wifiLedState = false;
+  setStatusLed(false);
+}
+
+// ================================================================
+// DASHBOARD SERVER
+// ================================================================
+
+void startDashboardServer() {
+  if (dashboardServerStarted) return;
+
+  if (wifiPortalStarted || WiFi.status() != WL_CONNECTED) {
+    return;
+  }
+
+  server.begin();
+  dashboardServerStarted = true;
+  Serial.println("[WEB] Dashboard started on port 80");
+}
+
+void stopDashboardServer() {
+  server.stop();
+
+  if (dashboardServerStarted) {
+    dashboardServerStarted = false;
+    Serial.println("[WEB] Dashboard stopped; port 80 released");
+  }
+}
+
+// ================================================================
+// CAPTIVE PORTAL HTML
+// ================================================================
+
+String portalHTML() {
+  String html;
+  html.reserve(4096);
+
+  html += F(
+    "<!DOCTYPE html><html><head>"
+    "<meta charset='UTF-8'>"
+    "<meta name='viewport' content='width=device-width,initial-scale=1'>"
+    "<meta name='mobile-web-app-capable' content='yes'>"
+    "<meta name='apple-mobile-web-app-capable' content='yes'>"
+    "<title>JARVIS V4 WiFi Setup</title>"
+    "<style>"
+    "body{font-family:Arial,sans-serif;background:#101820;color:#eee;margin:0;padding:18px}"
+    ".box{max-width:480px;margin:20px auto;background:#1c2a36;padding:20px;border-radius:14px}"
+    "h2{color:#00d4ff;margin-top:0}"
+    "label{display:block;margin-top:14px;font-size:14px}"
+    "input{width:100%;box-sizing:border-box;padding:12px;margin-top:6px;border:1px solid #526575;"
+    "border-radius:7px;background:#0e1820;color:white;font-size:16px}"
+    "button{width:100%;padding:14px;margin-top:22px;border:0;border-radius:8px;"
+    "background:#168bd2;color:white;font-weight:bold;font-size:16px;cursor:pointer}"
+    ".note{color:#b9c7d2;font-size:13px;line-height:1.5}"
+    "</style></head><body><div class='box'>"
+    "<h2>JARVIS V4 Setup</h2>"
+    "<p class='note'>Connect this device to your home WiFi network and configure MQTT settings.</p>"
+    "<form method='POST' action='/save'>"
+    "<label>WiFi Network Name (SSID)</label>"
+    "<input name='ssid' maxlength='32' required autocomplete='off' placeholder='e.g. kayat'>"
+    "<label>WiFi Password</label>"
+    "<input name='wifi_password' type='password' maxlength='64' autocomplete='new-password'>"
+    "<label>MQTT Server</label>"
+    "<input name='mqtt_host' maxlength='127' value='"
+  );
+  html += htmlEscape(config.mqttHost.length() > 0 ? config.mqttHost : MQTT_DEFAULT_HOST);
+  html += F(
+    "' required>"
+    "<label>MQTT Port</label>"
+    "<input name='mqtt_port' type='number' min='1' max='65535' value='"
+  );
+  html += String(config.mqttPort > 0 ? config.mqttPort : MQTT_DEFAULT_PORT);
+  html += F(
+    "' required>"
+    "<label>MQTT Username</label>"
+    "<input name='mqtt_user' maxlength='63' value='"
+  );
+  html += htmlEscape(config.mqttUser);
+  html += F(
+    "'>"
+    "<label>MQTT Password</label>"
+    "<input name='mqtt_password' type='password' maxlength='127' value='"
+  );
+  html += htmlEscape(config.mqttPassword);
+  html += F(
+    "'>"
+    "<label>Device Name</label>"
+    "<input name='device_name' maxlength='63' value='"
+  );
+  html += htmlEscape(config.deviceName.length() > 0 ? config.deviceName : DEVICE_NAME);
+  html += F(
+    "' required>"
+    "<button type='submit'>SAVE AND CONNECT</button>"
+    "</form>"
+    "<p class='note'>Direct setup address: <b>http://192.168.4.1</b></p>"
+    "</div></body></html>"
+  );
+
+  return html;
+}
+
+// ================================================================
+// CAPTIVE PORTAL HANDLERS
+// ================================================================
+
+void handlePortalRoot() {
+  portalServer.send(200, "text/html; charset=utf-8", portalHTML());
+}
+
+void handlePortalRedirect() {
+  portalServer.sendHeader("Location", "http://192.168.4.1/", true);
+  portalServer.send(302, "text/plain", "");
+}
+
+void handlePortalNotFound() {
+  portalServer.sendHeader("Location", "http://192.168.4.1/", true);
+  portalServer.send(302, "text/plain", "");
+}
+
+void handlePortalSave() {
+  if (!portalServer.hasArg("ssid") ||
+      !portalServer.hasArg("wifi_password")) {
+    portalServer.send(
+      400, "text/html; charset=utf-8",
+      "<html><body><h3>WiFi SSID or password field is missing</h3><a href='/'>Go back</a></body></html>"
+    );
+    return;
+  }
+
+  String ssid = portalServer.arg("ssid");
+  String wifiPassword = portalServer.arg("wifi_password");
+
+  // Trim SSID whitespace only. Password whitespace is preserved.
+  ssid.trim();
+
+  String newHost = portalServer.arg("mqtt_host");
+  String newPort = portalServer.arg("mqtt_port");
+  String newUser = portalServer.arg("mqtt_user");
+  String newPassword = portalServer.arg("mqtt_password");
+  String newDeviceName = portalServer.arg("device_name");
+
+  newHost.trim();
+  newPort.trim();
+  newUser.trim();
+  newDeviceName.trim();
+
+  if (ssid.length() == 0 || ssid.length() > 32) {
+    portalServer.send(
+      400, "text/html; charset=utf-8",
+      "<html><body><h3>Invalid WiFi SSID</h3><a href='/'>Go back</a></body></html>"
+    );
+    return;
+  }
+
+  if (!isValidWiFiPassword(wifiPassword)) {
+    portalServer.send(
+      400, "text/html; charset=utf-8",
+      "<html><body><h3>WiFi password must be empty or 8-63 characters, or a 64-character hexadecimal PSK</h3><a href='/'>Go back</a></body></html>"
+    );
+    return;
+  }
+
+  if (newHost.length() == 0 ||
+      newHost.length() >= sizeof(mqttHostBuffer) ||
+      newUser.length() >= sizeof(mqttUserBuffer) ||
+      newPassword.length() >= sizeof(mqttPasswordBuffer) ||
+      newDeviceName.length() == 0 ||
+      newDeviceName.length() >= sizeof(deviceNameBuffer)) {
+    portalServer.send(
+      400, "text/html; charset=utf-8",
+      "<html><body><h3>Invalid MQTT or device settings</h3><a href='/'>Go back</a></body></html>"
+    );
+    return;
+  }
+
+  uint16_t port = 0;
+
+  if (!isValidMQTTPort(newPort, port)) {
+    portalServer.send(
+      400, "text/html; charset=utf-8",
+      "<html><body><h3>MQTT port must be between 1 and 65535</h3><a href='/'>Go back</a></body></html>"
+    );
+    return;
+  }
+
+  pendingConfig.mqttHost = newHost;
+  pendingConfig.mqttPort = port;
+  pendingConfig.mqttUser = newUser;
+  pendingConfig.mqttPassword = newPassword;
+  pendingConfig.deviceName = newDeviceName;
+
+  pendingWiFiSSID = ssid;
+  pendingWiFiPassword = wifiPassword;
+  pendingCredentialsValid = true;
+
+  wifiHasSavedCredentials = wifiHasSavedCredentials || (savedWiFiSSID.length() > 0);
+  wifiFallbackTriggered = false;
+  wifiConnectStartedAt = millis();
+
+  portalReconnectPending = true;
+  portalReconnectStarted = false;
+  portalReconnectAt = millis();
+
+  String response =
+    "<!DOCTYPE html><html><head><meta name='viewport' content='width=device-width,initial-scale=1'>"
+    "<meta charset='UTF-8'><title>JARVIS Saved</title></head>"
+    "<body style='font-family:Arial,sans-serif;padding:25px;background:#101820;color:#eee'>"
+    "<h2 style='color:#00d4ff'>Settings Received</h2>"
+    "<p>Connecting to WiFi network <b>" + htmlEscape(ssid) + "</b>...</p>"
+    "<p>WiFi and MQTT settings will be stored permanently once connection succeeds.</p>"
+    "<p>You may now switch back to your home Wi-Fi network.</p></body></html>";
+
+  portalServer.send(200, "text/html; charset=utf-8", response);
+
+  Serial.println("[PORTAL] Configuration submitted");
+  Serial.printf("[PORTAL] SSID received: %s\n", ssid.c_str());
+  Serial.println("[PORTAL] WiFi password: [HIDDEN]");
+  Serial.printf("[PORTAL] MQTT host: %s\n", newHost.c_str());
+  Serial.printf("[PORTAL] MQTT port: %u\n", port);
+  Serial.println("[PORTAL] MQTT password: [HIDDEN]");
+}
+
+// ================================================================
+// CAPTIVE PORTAL ROUTES
+// ================================================================
+
+void configurePortalServer() {
+  portalServer.on("/", HTTP_GET, handlePortalRoot);
+  portalServer.on("/save", HTTP_POST, handlePortalSave);
+
+  // Wildcard Captive Portal OS probe redirect handlers
+  portalServer.on("/generate_204", HTTP_GET, handlePortalRedirect);
+  portalServer.on("/gen_204", HTTP_GET, handlePortalRedirect);
+  portalServer.on("/hotspot-detect.html", HTTP_GET, handlePortalRedirect);
+  portalServer.on("/library/test/success.html", HTTP_GET, handlePortalRedirect);
+  portalServer.on("/fwlink", HTTP_GET, handlePortalRedirect);
+  portalServer.on("/ncsi.txt", HTTP_GET, handlePortalRedirect);
+  portalServer.on("/connecttest.txt", HTTP_GET, handlePortalRedirect);
+  portalServer.on("/redirect", HTTP_GET, handlePortalRedirect);
+
+  portalServer.onNotFound(handlePortalNotFound);
+}
+
+// ================================================================
+// WIFI PORTAL START / STOP
+// ================================================================
+
+void stopWiFiPortal() {
+  if (!wifiPortalStarted) return;
+
+  Serial.println("[WiFi] Stopping captive portal...");
+
+  portalDNS.stop();
+  portalServer.stop();
+
+  wifiPortalStarted = false;
+  portalReconnectPending = false;
+  portalReconnectStarted = false;
+
+  Serial.println("[WiFi] Captive DNS and HTTP stopped");
+}
+
+void startWiFiPortal() {
+  if (wifiPortalStarted) return;
+
+  if (!wifiDriverReady)
+    initializeWiFiDriver();
+
+  uint32_t now = millis();
+
+  if (lastPortalAttempt != 0 &&
+      !elapsed(now, lastPortalAttempt, WIFI_PORTAL_RETRY_INTERVAL)) {
+    return;
+  }
+
+  lastPortalAttempt = now;
+
+  Serial.println("[WiFi] Starting dedicated captive portal...");
+
+  stopDashboardServer();
+  portalDNS.stop();
+  portalServer.stop();
+
+  if (wifiManager.getConfigPortalActive())
+    wifiManager.stopConfigPortal();
+
+  WiFi.softAPdisconnect(true);
+  WiFi.disconnect(false, false);
+
+  WiFi.mode(WIFI_AP_STA);
+  esp_wifi_set_ps(WIFI_PS_NONE);
+
+  IPAddress apIP(192, 168, 4, 1);
+  IPAddress gateway(192, 168, 4, 1);
+  IPAddress subnet(255, 255, 255, 0);
+
+  if (!WiFi.softAPConfig(apIP, gateway, subnet)) {
+    Serial.println("[WiFi] ERROR: softAPConfig failed");
+    WiFi.mode(WIFI_STA);
+    wifiPortalStarted = false;
+    return;
+  }
+
+  if (!WiFi.softAP("JARVIS-V4-SETUP", nullptr, 1, false, 4)) {
+    Serial.println("[WiFi] ERROR: softAP start failed");
+    WiFi.softAPdisconnect(true);
+    WiFi.mode(WIFI_STA);
+    wifiPortalStarted = false;
+    return;
+  }
+
+  IPAddress actualIP = WiFi.softAPIP();
+  Serial.printf("[WiFi] AP IP: %s\n", actualIP.toString().c_str());
+
+  if (actualIP != apIP) {
+    Serial.println("[WiFi] ERROR: Unexpected AP address");
+    WiFi.softAPdisconnect(true);
+    WiFi.mode(WIFI_STA);
+    wifiPortalStarted = false;
+    return;
+  }
+
+  if (!portalDNS.start(PORTAL_DNS_PORT, "*", apIP)) {
+    Serial.println("[WiFi] ERROR: Captive DNS start failed");
+    WiFi.softAPdisconnect(true);
+    WiFi.mode(WIFI_STA);
+    wifiPortalStarted = false;
+    return;
+  }
+
+  configurePortalServer();
+  portalServer.begin();
+
+  wifiPortalStarted = true;
+  wifiLedState = false;
+  wifiLedChangedAt = millis();
+
+  portalReconnectPending = false;
+  portalReconnectStarted = false;
+
+  Serial.println("[WiFi] Captive portal ready");
+  Serial.println("[WiFi] AP: JARVIS-V4-SETUP");
+  Serial.println("[WiFi] URL: http://192.168.4.1");
+  Serial.println("[WiFi] Wildcard DNS enabled");
+}
+
+// ================================================================
+// WIFI PORTAL SERVICE
+// ================================================================
+
+void serviceWiFiPortal() {
+  if (!wifiPortalStarted) return;
+
+  portalDNS.processNextRequest();
+  portalServer.handleClient();
+
+  if (!portalReconnectPending ||
+      !pendingCredentialsValid ||
+      !elapsed(millis(), portalReconnectAt, PORTAL_SAVE_RECONNECT_DELAY)) {
+    return;
+  }
+
+  if (portalReconnectStarted) return;
+  portalReconnectStarted = true;
+
+  Serial.println("[WiFi] Applying submitted credentials...");
+
+  stopWiFiPortal();
+
+  WiFi.persistent(false);
+  WiFi.mode(WIFI_STA);
+  esp_wifi_set_ps(WIFI_PS_NONE);
+  WiFi.setAutoReconnect(false);
+  WiFi.disconnect(false, false);
+
+  WiFi.begin(
+    pendingWiFiSSID.c_str(),
+    pendingWiFiPassword.c_str()
+  );
+
+  wifiConnectStartedAt = millis();
+  lastWiFiAttempt = millis();
+  wifiFallbackTriggered = false;
+  wifiWasConnected = false;
+
+  portalReconnectPending = false;
+
+  Serial.printf("[WiFi] Station connection started for SSID: %s\n",
+                pendingWiFiSSID.c_str());
+}
+
+// ================================================================
+// WIFI INITIAL CONNECTION
+// ================================================================
+
+void startInitialWiFiConnection() {
+  if (wifiConnectionStarted) return;
+
+  if (!wifiDriverReady)
+    initializeWiFiDriver();
+
+  wifiConnectionStarted = true;
+
+  WiFi.persistent(false);
+  WiFi.setAutoReconnect(false);
+
+  if (!loadWiFiCredentials()) {
+    wifiHasSavedCredentials = false;
+    wifiConnectStartedAt = 0;
+
+    Serial.println("[WiFi] No saved credentials; starting setup portal");
+    startWiFiPortal();
+    return;
+  }
+
+  wifiHasSavedCredentials = true;
+
+  WiFi.mode(WIFI_STA);
+  esp_wifi_set_ps(WIFI_PS_NONE);
+
+  Serial.printf("[WiFi] Connecting with saved SSID: %s\n",
+                savedWiFiSSID.c_str());
+
+  WiFi.begin(savedWiFiSSID.c_str(), savedWiFiPassword.c_str());
+
+  wifiConnectStartedAt = millis();
+  lastWiFiAttempt = millis();
+}
+
+// ================================================================
+// WIFI CONNECTION PERSISTENCE
+// ================================================================
+
+void persistConnectedCredentials() {
+  if (!pendingCredentialsValid) {
+    if (savedWiFiSSID.length() == 0)
+      loadWiFiCredentials();
+    return;
+  }
+
+  if (WiFi.status() != WL_CONNECTED || WiFi.localIP() == IPAddress(0, 0, 0, 0)) {
+    return;
+  }
+
+  String connectedSSID = WiFi.SSID();
+  if (connectedSSID.length() > 0 && connectedSSID != pendingWiFiSSID) {
+    Serial.printf("[NVS] Connected SSID '%s' does not match pending '%s'\n",
+                  connectedSSID.c_str(), pendingWiFiSSID.c_str());
+    return;
+  }
+
+  Serial.println("[NVS] Connection established; saving credentials to NVS...");
+
+  bool wifiSaved = saveWiFiCredentials(pendingWiFiSSID, pendingWiFiPassword);
+  bool mqttSaved = saveConfiguration(pendingConfig);
+
+  if (wifiSaved && mqttSaved) {
+    savedWiFiSSID = pendingWiFiSSID;
+    savedWiFiPassword = pendingWiFiPassword;
+    wifiHasSavedCredentials = true;
+
+    config = pendingConfig;
+    copyConfigToBuffers();
+    configureMQTT();
+
+    Serial.println("[WiFi] New WiFi and MQTT settings committed to NVS");
+    pendingCredentialsValid = false;
+    pendingWiFiSSID = "";
+    pendingWiFiPassword = "";
+  } else {
+    Serial.println("[NVS] ERROR: One or more settings were not persisted");
+  }
+}
+
+// ================================================================
+// WIFI SERVICE
+// ================================================================
+
+void serviceWiFi() {
+  uint32_t now = millis();
+
+  if (WiFi.status() == WL_CONNECTED) {
+    if (wifiPortalStarted)
+      stopWiFiPortal();
+
+    if (pendingCredentialsValid)
+      persistConnectedCredentials();
+
+    if (!dashboardServerStarted)
+      startDashboardServer();
+
+    if (!mdnsStarted) {
+      if (MDNS.begin("jarvis-v4")) {
+        MDNS.addService("http", "tcp", 80);
+        mdnsStarted = true;
+        Serial.println("[mDNS] Started: http://jarvis-v4.local/");
+      } else {
+        Serial.println("[mDNS] Start failed");
+      }
+    }
+
+    return;
+  }
+
+  if (wifiPortalStartRequested) {
+    wifiPortalStartRequested = false;
+    startWiFiPortal();
+  }
+
+  if (wifiPortalStarted) {
+    serviceWiFiPortal();
+    return;
+  }
+
+  if (!wifiHasSavedCredentials && !pendingCredentialsValid) {
+    if (lastPortalAttempt == 0 ||
+        elapsed(now, lastPortalAttempt, WIFI_PORTAL_RETRY_INTERVAL)) {
+      startWiFiPortal();
+    }
+    return;
+  }
+
+  if (wifiConnectStartedAt != 0 &&
+      !wifiFallbackTriggered &&
+      elapsed(now, wifiConnectStartedAt, WIFI_PORTAL_FALLBACK)) {
+    wifiFallbackTriggered = true;
+
+    Serial.println("[WiFi] Connection timeout; starting setup portal");
+    startWiFiPortal();
+    return;
+  }
+
+  if (elapsed(now, lastWiFiAttempt, WIFI_RETRY_INTERVAL)) {
+    lastWiFiAttempt = now;
+
+    Serial.println("[WiFi] Retrying saved credentials...");
+
+    if (pendingCredentialsValid) {
+      WiFi.begin(
+        pendingWiFiSSID.c_str(),
+        pendingWiFiPassword.c_str()
+      );
+    } else if (savedWiFiSSID.length() > 0) {
+      WiFi.begin(
+        savedWiFiSSID.c_str(),
+        savedWiFiPassword.c_str()
+      );
+    } else {
+      loadWiFiCredentials();
+
+      if (savedWiFiSSID.length() > 0) {
+        WiFi.begin(
+          savedWiFiSSID.c_str(),
+          savedWiFiPassword.c_str()
+        );
+      }
+    }
+  }
+}
+
+// ================================================================
+// DASHBOARD HTML
+// ================================================================
+
+String dashboardHTML() {
+  String html;
+  html.reserve(6500);
+
+  html += F(
+    "<!DOCTYPE html><html><head>"
+    "<meta name='viewport' content='width=device-width,initial-scale=1'>"
+    "<meta charset='UTF-8'><title>JARVIS V4</title>"
+    "<style>"
+    "body{font-family:Arial,sans-serif;background:#101820;color:#eee;margin:0;padding:18px}"
+    ".card{background:#1c2a36;padding:16px;margin:12px 0;border-radius:12px}"
+    "h2{color:#00d4ff;margin-top:0}"
+    "button{padding:12px 18px;margin:4px;border:0;border-radius:7px;font-weight:bold;cursor:pointer}"
+    ".green{background:#1db954;color:#fff}"
+    ".red{background:#e53935;color:#fff}"
+    ".blue{background:#168bd2;color:#fff}"
+    "a{color:#00d4ff;text-decoration:none}"
+    "a:hover{text-decoration:underline}"
+    "</style></head><body>"
+  );
+
+  html += F("<h2>JARVIS V4 CONTROL PANEL</h2><div class='card'><h3>System</h3><p>Device: ");
+  html += htmlEscape(config.deviceName);
+  html += F("</p><p>WiFi: ");
+  html += (WiFi.status() == WL_CONNECTED ? "Connected" : "Disconnected");
+  html += F("</p><p>MQTT: ");
+  html += (mqttClient.connected() ? "Connected" : "Disconnected");
+  html += F("</p><p>IP: ");
+  html += WiFi.localIP().toString();
+  html += F("</p><p>mDNS: jarvis-v4.local</p></div>");
+
+  html += F("<div class='card'><h3>Main Gate</h3><p>State: ");
+
+  switch (gateState) {
+    case GATE_OPEN_UNLOCK_WAIT: html += "Unlocking"; break;
+    case GATE_OPENING:          html += "Opening"; break;
+    case GATE_CLOSING:          html += "Closing"; break;
+    case GATE_CLOSE_LOCK_WAIT:  html += "Waiting to lock"; break;
+    case GATE_FAULT:
+      html += "FAULT: ";
+      html += htmlEscape(gateFaultMessage);
+      break;
+    default:
+      html += gateOpenLimit ? "Open" :
+        (gateCloseLimit ? (lockStates[0] ? "Closed & Locked" : "Closed") : "Idle");
+      break;
+  }
+
+  html += F("</p>");
+  html += F("<button class='green' onclick=\"fetch('/gate/open').then(()=>setTimeout(()=>location.reload(),800))\">OPEN</button>");
+  html += F("<button class='red' onclick=\"fetch('/gate/close').then(()=>setTimeout(()=>location.reload(),800))\">CLOSE</button>");
+  html += F("<button class='blue' onclick=\"fetch('/gate/stop').then(()=>setTimeout(()=>location.reload(),500))\">STOP</button></div>");
+
+  for (uint8_t i = 0; i < 4; i++) {
+    html += F("<div class='card'><h3>");
+    html += htmlEscape(String(lockNames[i]));
+    html += F("</h3><p>State: ");
+    html += lockStates[i] ? "LOCKED" : "UNLOCKED";
+    html += F("</p><button class='red' onclick=\"fetch('/lock/");
+    html += lockIds[i];
+    html += F("/lock').then(()=>setTimeout(()=>location.reload(),500))\">LOCK</button><button class='green' onclick=\"fetch('/lock/");
+    html += lockIds[i];
+    html += F("/unlock').then(()=>setTimeout(()=>location.reload(),500))\">UNLOCK</button></div>");
+  }
+
+  html += F(
+    "<div class='card'><h3>Settings</h3>"
+    "<a href='/settings'>MQTT Settings</a><br><br>"
+    "<a href='/start-wifi-setup'>Open WiFi Setup Portal</a><br><br>"
+    "<a href='/reset-wifi'>Reset WiFi Credentials</a>"
+    "</div></body></html>"
+  );
+
+  return html;
+}
+
+String settingsHTML() {
+  String html;
+  html.reserve(3000);
+
+  html += F(
+    "<!DOCTYPE html><html><head>"
+    "<meta name='viewport' content='width=device-width,initial-scale=1'>"
+    "<meta charset='UTF-8'><title>JARVIS Settings</title>"
+    "<style>"
+    "body{font-family:Arial,sans-serif;background:#101820;color:white;padding:18px}"
+    "input{width:100%;padding:10px;margin:8px 0;box-sizing:border-box;border-radius:6px;border:1px solid #444;background:#16222f;color:#fff}"
+    "button{padding:12px 20px;background:#168bd2;color:white;border:0;border-radius:6px;cursor:pointer;font-weight:bold}"
+    ".card{background:#1c2a36;padding:16px;border-radius:10px;max-width:500px}"
+    "a{color:#00d4ff}"
+    "</style></head><body><div class='card'><h2>MQTT Settings</h2>"
+    "<form method='POST' action='/save-settings'>"
+  );
+
+  html += F("<label>MQTT Host</label><input name='host' value='");
+  html += htmlEscape(config.mqttHost);
+  html += F("' required>");
+
+  html += F("<label>MQTT Port</label><input name='port' type='number' value='");
+  html += String(config.mqttPort);
+  html += F("' required>");
+
+  html += F("<label>MQTT Username</label><input name='user' value='");
+  html += htmlEscape(config.mqttUser);
+  html += F("'>");
+
+  html += F("<label>MQTT Password</label><input type='password' name='password' value='");
+  html += htmlEscape(config.mqttPassword);
+  html += F("'>");
+
+  html += F("<label>Device Name</label><input name='device' value='");
+  html += htmlEscape(config.deviceName);
+  html += F("' required>");
+
+  html += F(
+    "<br><br><button type='submit'>SAVE SETTINGS</button>"
+    "</form><br><a href='/'>Back to Dashboard</a></div></body></html>"
+  );
+
+  return html;
+}
+
+// ================================================================
+// RESTART SERVICE
+// ================================================================
+
+void scheduleRestart() {
+  restartPending = true;
+  restartAt = millis();
+}
+
+void serviceScheduledRestart() {
+  if (restartPending &&
+      elapsed(millis(), restartAt, RESTART_DELAY)) {
+    restartPending = false;
+    Serial.println("[SYSTEM] Restarting ESP32...");
+    ESP.restart();
+  }
+}
+
+// ================================================================
+// DASHBOARD HANDLERS
+// ================================================================
+
+void handleRoot() {
+  server.send(200, "text/html; charset=utf-8", dashboardHTML());
+}
+
+void handleSettings() {
+  server.send(200, "text/html; charset=utf-8", settingsHTML());
+}
+
+void handleSaveSettings() {
+  String host = server.arg("host");
+  String portString = server.arg("port");
+  String user = server.arg("user");
+  String password = server.arg("password");
+  String device = server.arg("device");
+
+  host.trim();
+  portString.trim();
+  user.trim();
+  device.trim();
+
+  uint16_t port = 0;
+
+  if (host.length() == 0 ||
+      host.length() >= sizeof(mqttHostBuffer) ||
+      user.length() >= sizeof(mqttUserBuffer) ||
+      password.length() >= sizeof(mqttPasswordBuffer) ||
+      device.length() == 0 ||
+      device.length() >= sizeof(deviceNameBuffer) ||
+      !isValidMQTTPort(portString, port)) {
+    server.send(400, "text/plain; charset=utf-8",
+                "Invalid settings. Check host, port and field lengths.");
+    return;
+  }
+
+  DeviceConfig updatedConfig;
+  updatedConfig.mqttHost = host;
+  updatedConfig.mqttPort = port;
+  updatedConfig.mqttUser = user;
+  updatedConfig.mqttPassword = password;
+  updatedConfig.deviceName = device;
+
+  if (!saveConfiguration(updatedConfig)) {
+    server.send(500, "text/plain", "Settings save failed");
+    return;
+  }
+
+  config = updatedConfig;
+  copyConfigToBuffers();
+
+  mqttClient.disconnect();
+  mqttConnected = false;
+  discoveryPublished = false;
+  configureMQTT();
+
+  Serial.println("[WEB] MQTT settings saved");
+
+  server.send(
+    200, "text/html; charset=utf-8",
+    "<html><body style='font-family:Arial;padding:20px;background:#101820;color:#fff'><h3>Settings saved successfully.</h3><a style='color:#00d4ff' href='/'>Return to Dashboard</a></body></html>"
+  );
+}
+
+void handleGateOpen() {
+  beginGateOpen();
+  server.send(200, "text/plain", "OPEN accepted");
+}
+
+void handleGateClose() {
+  beginGateClose();
+  server.send(200, "text/plain", "CLOSE accepted");
+}
+
+void handleGateStop() {
+  stopGateOperation();
+  server.send(200, "text/plain", "STOP accepted");
+}
+
+void handleLockRoute(uint8_t index, bool locked) {
+  if (index >= 4) {
+    server.send(404, "text/plain", "Unknown lock");
+    return;
+  }
+
+  if (!setLockOutput(index, locked)) {
+    server.send(
+      409, "text/plain",
+      "Command rejected: main gate Close Limit is not active"
+    );
+    return;
+  }
+
+  server.send(
+    200, "text/plain",
+    locked ? "LOCK accepted" : "UNLOCK accepted"
+  );
+}
+
+void handleLockMain() { handleLockRoute(0, true); }
+void handleUnlockMain() { handleLockRoute(0, false); }
+void handleLockBD1() { handleLockRoute(1, true); }
+void handleUnlockBD1() { handleLockRoute(1, false); }
+void handleLockBalcony() { handleLockRoute(2, true); }
+void handleUnlockBalcony() { handleLockRoute(2, false); }
+void handleLockBD2() { handleLockRoute(3, true); }
+void handleUnlockBD2() { handleLockRoute(3, false); }
+
+void handleStartWiFiSetup() {
+  server.send(
+    200, "text/html; charset=utf-8",
+    "<html><body style='font-family:Arial;padding:20px;background:#101820;color:#fff'><h3 style='color:#00d4ff'>WiFi setup portal starting</h3>"
+    "<p>Connect to <b>JARVIS-V4-SETUP</b>.</p>"
+    "<p>Open <b>http://192.168.4.1</b></p></body></html>"
+  );
+
+  wifiPortalStartRequested = true;
+}
+
+void handleResetWiFi() {
+  server.send(
+    200, "text/plain",
+    "WiFi credentials will be cleared. Restarting."
+  );
+
+  Serial.println("[WEB] WiFi reset requested");
+  factoryResetTriggered = true;
+}
+
+void configureWebServer() {
+  server.on("/", HTTP_GET, handleRoot);
+  server.on("/settings", HTTP_GET, handleSettings);
+  server.on("/save-settings", HTTP_POST, handleSaveSettings);
+
+  server.on("/gate/open", HTTP_GET, handleGateOpen);
+  server.on("/gate/close", HTTP_GET, handleGateClose);
+  server.on("/gate/stop", HTTP_GET, handleGateStop);
+
+  server.on("/lock/mainlock/lock", HTTP_GET, handleLockMain);
+  server.on("/lock/mainlock/unlock", HTTP_GET, handleUnlockMain);
+
+  server.on("/lock/bd1/lock", HTTP_GET, handleLockBD1);
+  server.on("/lock/bd1/unlock", HTTP_GET, handleUnlockBD1);
+
+  server.on("/lock/blc/lock", HTTP_GET, handleLockBalcony);
+  server.on("/lock/blc/unlock", HTTP_GET, handleUnlockBalcony);
+
+  server.on("/lock/bd2/lock", HTTP_GET, handleLockBD2);
+  server.on("/lock/bd2/unlock", HTTP_GET, handleUnlockBD2);
+
+  server.on("/start-wifi-setup", HTTP_GET, handleStartWiFiSetup);
+  server.on("/reset-wifi", HTTP_GET, handleResetWiFi);
+
+  server.onNotFound([]() {
+    server.send(404, "text/plain", "Not Found");
+  });
+
+  Serial.println("[WEB] Dashboard routes configured");
+}
+
+// ================================================================
+// FACTORY RESET
+// ================================================================
+
+void factoryResetAllSettings() {
+  Serial.println();
+  Serial.println("========================================");
+  Serial.println("[RESET] FACTORY RESET STARTED");
+  Serial.println("========================================");
+
+  stopGateMotor();
+  cancelGateTimers();
+
+  mqttClient.disconnect();
+  mqttConnected = false;
+
+  stopDashboardServer();
+  stopWiFiPortal();
+
+  bool configCleared = clearPreferencesNamespace("jarvis_config");
+  bool locksCleared = clearPreferencesNamespace("jarvis_v4_final");
+  bool wifiEraseOK = eraseWiFiCredentials();
+
+  config.mqttHost = MQTT_DEFAULT_HOST;
+  config.mqttPort = MQTT_DEFAULT_PORT;
+  config.mqttUser = MQTT_DEFAULT_USER;
+  config.mqttPassword = "";
+  config.deviceName = DEVICE_NAME;
+  copyConfigToBuffers();
+
+  lockStates[0] = true;
+  lockStates[1] = true;
+  lockStates[2] = true;
+  lockStates[3] = true;
+
+  applySavedLockStates();
+
+  gateState = GATE_IDLE;
+  gateFaultMessage = "";
+
+  wifiHasSavedCredentials = false;
+  wifiConnectionStarted = false;
+  wifiConnectStartedAt = 0;
+  wifiFallbackTriggered = false;
+  wifiWasConnected = false;
+  wifiPortalStartRequested = false;
+  pendingCredentialsValid = false;
+  pendingWiFiSSID = "";
+  pendingWiFiPassword = "";
+  savedWiFiSSID = "";
+  savedWiFiPassword = "";
+  mdnsStarted = false;
+
+  if (preferences.begin("jarvis_meta", false)) {
+    size_t written = preferences.putUShort("schema", FIRMWARE_CONFIG_SCHEMA);
+    preferences.end();
+
+    if (written == 0)
+      Serial.println("[RESET] Schema marker save failed");
+  } else {
+    Serial.println("[RESET] Cannot preserve schema marker");
+  }
+
+  Serial.println(configCleared
+    ? "[RESET] Configuration cleared"
+    : "[RESET] Configuration clear failed");
+
+  Serial.println(locksCleared
+    ? "[RESET] Lock states cleared"
+    : "[RESET] Lock-state clear failed");
+
+  Serial.println(wifiEraseOK
+    ? "[RESET] WiFi credentials erased"
+    : "[RESET] WiFi erase returned an error");
+
+  Serial.println("[RESET] Restarting into setup mode...");
+  Serial.println("========================================");
+
+  factoryResetTriggered = false;
+  scheduleRestart();
+}
+
+void serviceBootButtonFactoryReset() {
+  uint32_t now = millis();
+  bool rawPressed = digitalRead(PIN_FACTORY_RESET) == LOW;
+
+  if (rawPressed != factoryResetRawState) {
+    factoryResetRawState = rawPressed;
+    factoryResetRawChangedAt = now;
+  }
+
+  if (!elapsed(now, factoryResetRawChangedAt, FACTORY_RESET_DEBOUNCE_TIME)) {
+    return;
+  }
+
+  if (factoryResetRawState && !factoryResetButtonPressed) {
+    factoryResetButtonPressed = true;
+    factoryResetPressAt = now;
+    Serial.println("[RESET] BOOT button pressed");
+  }
+
+  if (!factoryResetRawState && factoryResetButtonPressed) {
+    factoryResetButtonPressed = false;
+    factoryResetPressAt = 0;
+    Serial.println("[RESET] BOOT button released");
+  }
+
+  if (factoryResetButtonPressed &&
+      !factoryResetTriggered &&
+      elapsed(now, factoryResetPressAt, FACTORY_RESET_HOLD_TIME)) {
+    factoryResetTriggered = true;
+    Serial.println("[RESET] BOOT held for five seconds");
+  }
+}
+
+// ================================================================
+// GPIO INITIALIZATION
+// ================================================================
+
+void initializeGPIO() {
+  pinMode(PIN_GATE_FWD, OUTPUT);
+  pinMode(PIN_GATE_REV, OUTPUT);
+  digitalWrite(PIN_GATE_FWD, LOW);
+  digitalWrite(PIN_GATE_REV, LOW);
+
+  for (uint8_t i = 0; i < 4; i++) {
+    pinMode(lockPins[i], OUTPUT);
+    digitalWrite(lockPins[i], HIGH);
+  }
+
+  pinMode(PIN_BUTTON_GATE, INPUT_PULLUP);
+  pinMode(PIN_BUTTON_BD1, INPUT_PULLUP);
+  pinMode(PIN_BUTTON_BALCONY, INPUT_PULLUP);
+  pinMode(PIN_BUTTON_BD2, INPUT_PULLUP);
+
+  pinMode(PIN_OPTO_MAIN, INPUT);
+  pinMode(PIN_OPTO_BD1, INPUT);
+  pinMode(PIN_OPTO_BALCONY, INPUT);
+  pinMode(PIN_OPTO_BD2, INPUT);
+
+  pinMode(PIN_BELL_MAIN, INPUT_PULLUP);
+  pinMode(PIN_BELL_BD1, INPUT_PULLUP);
+  pinMode(PIN_BELL_BALCONY, INPUT_PULLUP);
+  pinMode(PIN_BELL_BD2, INPUT_PULLUP);
+
+  pinMode(PIN_LIMIT_OPEN, INPUT_PULLUP);
+  pinMode(PIN_LIMIT_CLOSE, INPUT_PULLUP);
+
+  pinMode(PIN_WIFI_LED, OUTPUT);
+  setStatusLed(false);
+
+  pinMode(PIN_FACTORY_RESET, INPUT_PULLUP);
+
+  uint32_t now = millis();
+
+  for (uint8_t i = 0; i < 4; i++) {
+    bool buttonActive = digitalRead(localButtons[i].pin) == LOW;
+    localButtons[i].lastRawState = buttonActive;
+    localButtons[i].stableState = false;
+    localButtons[i].changedAt = now;
+
+    bool optoActive = digitalRead(statusOptos[i].pin) == LOW;
+    statusOptos[i].lastRawState = optoActive;
+    statusOptos[i].stableState = optoActive;
+    statusOptos[i].changedAt = now;
+
+    bool bellActive = digitalRead(bellOptos[i].pin) == LOW;
+    bellOptos[i].lastRawState = bellActive;
+    bellOptos[i].stableState = false;
+    bellOptos[i].changedAt = now;
+  }
+
+  factoryResetRawState = digitalRead(PIN_FACTORY_RESET) == LOW;
+  factoryResetRawChangedAt = now;
+
+  wifiLedState = false;
+  wifiLedChangedAt = now;
+}
+
+// ================================================================
+// SETUP
+// ================================================================
+
+void setup() {
+  Serial.begin(115200);
+
+  Serial.println();
+  Serial.println("========================================");
+  Serial.println("       JARVIS V4 BOOTING");
+  Serial.println("========================================");
+
+  // Local hardware initialized first.
+  initializeGPIO();
+
+  // Initialize WiFi driver before schema/NVS migration.
+  initializeWiFiDriver();
+
+  WiFi.onEvent(onWiFiEvent);
+  Serial.println("[SYSTEM] WiFi event handler registered");
+
+  checkFirmwareConfigurationSchema();
+
+  loadConfiguration();
+  copyConfigToBuffers();
+
+  loadLockStates();
+
+  gateOpenLimit = isGateOpenLimitActive();
+  gateCloseLimit = isGateCloseLimitActive();
+
+  applySavedLockStates();
+
+  mqttBaseTopic = String(DEVICE_ID);
+  mqttAvailabilityTopic = mqttBaseTopic + "/availability";
+
+  configureMQTT();
+  configureWiFiManager();
+
+  configureWebServer();
+  configurePortalServer();
+
+  startInitialWiFiConnection();
+
+  lastWiFiAttempt = millis();
+  lastMQTTAttempt = millis();
+
+  if (!wifiPortalStarted && WiFi.status() == WL_CONNECTED)
+    startDashboardServer();
+
+  Serial.println("----------------------------------------");
+  Serial.println("[SYSTEM] JARVIS V4 initialized");
+  Serial.println("[SYSTEM] Dashboard: HTTP 80");
+  Serial.println("[SYSTEM] WiFi portal: JARVIS-V4-SETUP");
+  Serial.println("[SYSTEM] Portal IP: 192.168.4.1");
+  Serial.println("[SYSTEM] Captive DNS and routes enabled");
+  Serial.println("[SYSTEM] mDNS: jarvis-v4.local");
+  Serial.println("[SYSTEM] BOOT hold: 5 seconds");
+  Serial.println("[SYSTEM] Local hardware processing enabled");
+  Serial.println("----------------------------------------");
+}
+
+// ================================================================
+// MAIN LOOP
+// ================================================================
+
+void loop() {
+  serviceBootButtonFactoryReset();
+
+  if (factoryResetTriggered)
+    factoryResetAllSettings();
+
+  // Local hardware processing always executes before networking.
+  serviceLocalButtons();
+  serviceStatusOptocouplers();
+  serviceCallingBells();
+  serviceGateStateMachine();
+
+  if (dashboardServerStarted && !wifiPortalStarted)
+    server.handleClient();
+
+  serviceWiFi();
+  serviceWiFiStatusLED();
+  serviceMQTT();
+  serviceScheduledRestart();
+
+  yield();
+}
